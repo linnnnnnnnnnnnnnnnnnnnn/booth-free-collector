@@ -1,6 +1,7 @@
 ---
 name: booth-free-collector
 description: BOOTH 免费商品批量下载与归档。给定 BOOTH 店铺链接（如 https://xxx.booth.pm/）自动爬全店，或接收好友/群里分享的【零散商品链接】——脚本自动判定输入类型（整店 / 散链），筛选 0 円免费商品、下载全部免费文件，按「商品分类(文件夹)/商品ID_标题/」结构归档，每个商品文件夹内含 cover.jpg 封面并自动设置为 Windows 文件夹图标（大图标视图可直接预览）。触发词：booth、booth下载、免费商品下载、VRChat免费素材、booth归档、下载booth店铺、免费鸡蛋、下载鸡蛋、领鸡蛋、白嫖鸡蛋、下载散链、散的链接、朋友发的booth（"免费鸡蛋/蛋"是 VRChat 社区梗，指 BOOTH 上的免费商品/素材）。
+group: 游戏与 XR
 ---
 
 # BOOTH Free Collector — BOOTH 免费商品批量下载归档
@@ -18,7 +19,10 @@ description: BOOTH 免费商品批量下载与归档。给定 BOOTH 店铺链接
 4. 下载全部免费文件 + 第一张商品图为 `cover.jpg`（**文件下载必须登录**，见下）
 5. 归档结构：`<输出根>/<商品分类中文名>/<商品ID>_<标题>/`（分类经 CATEGORY_MAP 汉化：3Dテクスチャ→3D贴图、3D衣装→3D服装、3D装飾品→3D饰品、ポスター→海报 等）
 6. 用 Pillow 将封面转 `.folder_icon.ico`（隐藏）并写 `desktop.ini`（隐藏+系统）、文件夹加只读位 → Windows 资源管理器「大图标」视图直接显示封面
-7. 写入/合并 `manifest_<店铺>.json`（整店模式）或 `manifest_items.json`（散链模式）记录已下载清单（幂等，重跑跳过已有文件）
+
+> 幂等性说明：重跑时通过**文件系统扫描**（`valid_file` 检查目标文件是否已存在且非伪装 HTML）跳过已下载项，无需任何额外清单文件。输出目录保持纯净——除商品内容文件与封面图标三件套（cover.jpg / .folder_icon.ico / desktop.ini）外，不写入任何副产物。
+
+**下载健壮性**：优先单次流式下载（小文件极快）；若代理中途断流（如某些代理对单连接大文件传输设限，抛出 `IncompleteRead`），自动降级为**分块 Range 续传**（每片 64KB 独立短连接，逐片重试），绕开单连接限制。绝大多数情况下用户无感。
 
 ## 输入类型自动判定（核心特性）
 
@@ -91,6 +95,7 @@ python scripts/booth_free_dl.py "https://atelier-kotone.booth.pm/items/8103811"
 │       └── desktop.ini        (隐藏+系统)
 ├── 3D贴图\
 ├── 3D服装\
-├── 海报\
-└── manifest_<店铺>.json
+└── 海报\
 ```
+
+> 输出根目录仅含分类文件夹，不写入任何 manifest / 日志等副产物。

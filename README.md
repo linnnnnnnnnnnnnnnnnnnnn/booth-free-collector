@@ -105,12 +105,13 @@ G:\Lin_File\Downloads\BOOTH\
 │       ├── .folder_icon.ico   (隐藏)
 │       └── desktop.ini        (隐藏+系统)
 ├── 海报\
-├── 3D贴图\
-└── manifest_atelier-kotone.json   (或散链模式的 manifest_items.json)
+└── 3D贴图\
 ```
 
 每个商品文件夹含 `cover.jpg` 并自动设为 Windows 文件夹图标，
 资源管理器「大图标」视图可直接预览封面。
+
+> 输出目录保持纯净：除商品内容文件与封面图标三件套（cover.jpg / .folder_icon.ico / desktop.ini）外，不写入任何清单/日志副产物。重跑时通过文件系统扫描跳过已下载项（幂等）。
 
 ---
 

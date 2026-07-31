@@ -28,7 +28,6 @@ Notes:
 - Respects HTTP(S)_PROXY env vars automatically (requests default behavior).
 """
 import argparse
-import json
 import os
 import platform
 import re
@@ -177,6 +176,7 @@ def valid_file(path: Path) -> bool:
 def download(url: str, dest: Path, session: requests.Session, check_html: bool = False):
     tmp = dest.with_suffix(dest.suffix + ".part")
     last_err = None
+    # 1) fast path: single streamed GET (works for small files; proven in practice)
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             with session.get(url, headers=UA, stream=True, timeout=120) as r:
@@ -192,6 +192,14 @@ def download(url: str, dest: Path, session: requests.Session, check_html: bool =
                 wait = attempt * 2
                 log(f"    ! 下载失败 (attempt {attempt}/{MAX_RETRIES}), {wait}s 后重试: {e}")
                 time.sleep(wait)
+    # 2) fallback: chunked Range download (survives proxies that cut large streams)
+    if last_err:
+        try:
+            log("    ~ 流式下载中断，切换为分块续传模式")
+            _ranged_download(url, tmp, session)
+            last_err = None
+        except Exception as e:  # noqa: BLE001 - any ranged failure keeps original symptom
+            last_err = e
     if last_err:
         raise last_err
     if check_html:
@@ -200,6 +208,54 @@ def download(url: str, dest: Path, session: requests.Session, check_html: bool =
                 tmp.unlink(missing_ok=True)
                 raise RuntimeError("got BOOTH login page instead of file — supply --cookie (see SKILL.md)")
     tmp.replace(dest)
+
+
+def _ranged_download(url: str, tmp: Path, session: requests.Session,
+                     chunk: int = 64 * 1024, max_retry: int = 6):
+    """Download via HTTP Range in small chunks.
+
+    Some proxies silently cut a single large response (e.g. after ~90KB),
+    which makes a normal streamed GET fail with IncompleteRead on big files.
+    Splitting into small ranged chunks — each its own short-lived connection —
+    gets around that. We re-issue the ORIGINAL url per chunk so the signed S3
+    URL is always fresh (BOOTH's downloadables redirect to a time-limited
+    s6.booth.pm URL; re-resolving each time keeps it valid).
+    """
+    with session.get(url, headers={**UA, "Range": "bytes=0-0"}, stream=True,
+                     timeout=60, allow_redirects=True) as r:
+        r.raise_for_status()
+        cr = r.headers.get("Content-Range", "")
+        if "/" not in cr:
+            raise RuntimeError(f"server does not support Range (no Content-Range): {cr!r}")
+        total = int(cr.rsplit("/", 1)[-1])
+    if total == 0:
+        open(tmp, "wb").close()  # empty file, nothing to fetch
+        return
+    done = 0
+    with open(tmp, "wb") as fh:
+        while done < total:
+            end = min(done + chunk - 1, total - 1)
+            ok = False
+            for att in range(1, max_retry + 1):
+                try:
+                    with session.get(url, headers={**UA, "Range": f"bytes={done}-{end}"},
+                                     stream=True, timeout=120, allow_redirects=True) as r:
+                        r.raise_for_status()
+                        for c in r.iter_content(1 << 16):
+                            fh.write(c)
+                    ok = True
+                    break
+                except (requests.ConnectionError, requests.Timeout,
+                        requests.exceptions.ChunkedEncodingError) as e:
+                    if att < max_retry:
+                        time.sleep(1)
+                    else:
+                        raise RuntimeError(f"chunk {done}-{end} failed: {e}")
+            if not ok:
+                raise RuntimeError(f"chunk {done}-{end} failed after {max_retry} retries")
+            done = end + 1
+    log(f"    ~ 分块续传完成 ({total} bytes)")
+
 
 
 def load_cookie(session: requests.Session, cookie_arg: str):
@@ -314,7 +370,7 @@ def main():
     else:
         ap.error("provide a shop URL/subdomain, or use --items with item links/IDs")
 
-    manifest, done, skipped, failures = [], 0, 0, []
+    done, skipped, failures = 0, 0, []
     for n, item_id in enumerate(ids, 1):
         if args.limit and done >= args.limit:
             break
@@ -335,8 +391,6 @@ def main():
         folder = root / sanitize(group, 40) / f"{item_id}_{sanitize(title)}"
         log(f"[{n}/{len(ids)}] FREE {item_id} | {group} | {title} ({len(files)} files)")
         if args.dry_run:
-            manifest.append({"id": item_id, "title": title, "group": group,
-                             "files": [f[1] for f in files]})
             done += 1
             continue
 
@@ -364,26 +418,9 @@ def main():
                 log(f"    ! cover failed: {e}")
         if cover.exists():
             make_folder_icon(folder, cover)
-        manifest.append({"id": item_id, "title": title, "group": group,
-                         "tags": [t.get("name") for t in item.get("tags") or []],
-                         "files": [f[1] for f in files],
-                         "url": f"https://booth.pm/ja/items/{item_id}"})
         done += 1
         time.sleep(0.8)
 
-    if not args.dry_run:
-        root.mkdir(parents=True, exist_ok=True)
-        mf = root / f"manifest_{sub}.json"
-        old = []
-        if mf.exists():
-            try:
-                old = json.loads(mf.read_text(encoding="utf-8"))
-            except Exception:
-                old = []
-        merged = {m["id"]: m for m in old}
-        for m in manifest:
-            merged[m["id"]] = m
-        mf.write_text(json.dumps(list(merged.values()), ensure_ascii=False, indent=2), encoding="utf-8")
     log(f"== done: {done} free items processed, {skipped} files already existed ==")
     if failures:
         log(f"== {len(failures)} downloads FAILED (likely login required, use --cookie): ==")
