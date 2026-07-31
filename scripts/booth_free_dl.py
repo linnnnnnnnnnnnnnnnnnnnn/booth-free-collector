@@ -74,10 +74,13 @@ def log(msg):
 
 
 def retry_request(method, url, session, **kwargs):
+    """Send a request with exponential-backoff retry on *transport* errors only
+    (ConnectionError / Timeout / ChunkedEncodingError from proxy blips).
+    HTTP status is left to the caller (so e.g. a 404 page can be handled
+    gracefully instead of being retried/raised here)."""
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             r = session.request(method, url, **kwargs)
-            r.raise_for_status()
             return r
         except (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError) as e:
             if attempt < MAX_RETRIES:
@@ -140,6 +143,7 @@ def crawl_item_ids(sub: str, session: requests.Session) -> list:
 def fetch_item(item_id: str, session: requests.Session) -> dict:
     r = retry_request("GET", f"https://booth.pm/ja/items/{item_id}.json", session,
                       headers={**UA, "Accept": "application/json"}, timeout=30)
+    r.raise_for_status()
     return r.json()
 
 
