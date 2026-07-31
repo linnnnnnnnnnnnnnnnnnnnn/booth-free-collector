@@ -48,7 +48,7 @@ pip install requests pillow
 ### 1. 按店铺整店下载
 
 ```bash
-python scripts/booth_free_dl.py "https://atelier-kotone.booth.pm/" --out "G:/Lin_File/Downloads/BOOTH"
+python scripts/booth_free_dl.py "https://atelier-kotone.booth.pm/" --out "G:/Lin_File/BOOTH"
 ```
 
 ### 2. 好友 / 群里分享的零散链接（自动判定为「散链模式」）
@@ -97,7 +97,7 @@ python scripts/booth_free_dl.py "https://atelier-kotone.booth.pm/items/8103811"
 ## 输出结构
 
 ```
-G:\Lin_File\Downloads\BOOTH\
+G:\Lin_File\BOOTH\
 ├── 3D饰品\
 │   └── 7603673_【FREE】あったかニット帽🧶\
 │       ├── ニット帽_v1.1.zip

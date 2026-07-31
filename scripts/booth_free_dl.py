@@ -16,7 +16,7 @@ Usage:
     python booth_free_dl.py --items <item_link_or_id> [<item_link_or_id> ...]   # scattered/friend links
 
 Example:
-    python booth_free_dl.py https://atelier-kotone.booth.pm/ --out "G:/Lin_File/Downloads/BOOTH"
+    python booth_free_dl.py https://atelier-kotone.booth.pm/ --out "G:/Lin_File/BOOTH"
     python booth_free_dl.py --items "https://atelier-kotone.booth.pm/items/6574952" "https://booth.pm/ja/items/6574953"
     python booth_free_dl.py "https://atelier-kotone.booth.pm/items/8103811"   # single link auto-detected
 
@@ -113,7 +113,9 @@ def parse_discrete(text: str) -> list:
     Returns a de-duplicated, order-preserving id list.
     """
     url_ids = re.findall(r'/items/(\d+)', text)
-    bare = re.findall(r'\b\d{5,}\b', text.replace(",", " "))
+    # (?<!\d)...(?!\d): full-id match; \\b fails when a CJK char sits next to the
+    # digits (Python Unicode \\b treats CJK as word char, breaking the boundary).
+    bare = re.findall(r'(?<!\d)\d{5,}(?!\d)', text.replace(",", " "))
     ids = url_ids + [b for b in bare if b not in url_ids]
     return list(dict.fromkeys(ids))
 
@@ -330,7 +332,7 @@ def main():
     ap.add_argument("--items", nargs="+", default=[], metavar="LINKS",
                     help="discrete item link(s)/ID(s) from friends/groups. "
                          "Multiple values separated by spaces, or one string with comma/newline separated ids.")
-    ap.add_argument("--out", default=r"./booth_downloads")
+    ap.add_argument("--out", default=r"G:\Lin_File\BOOTH")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--folder-by", choices=["category", "first-tag"], default="category",
