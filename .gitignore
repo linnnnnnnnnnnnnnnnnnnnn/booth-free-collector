@@ -1,18 +1,21 @@
-# ===== Secrets: NEVER commit cookies / login sessions =====
-.booth_cookie.txt
+# ===== booth-toolkit 仓库级忽略 =====
+# 绝对禁止上传任何登录凭据！
 *_cookie.txt
 *_session*
+*session*.txt
+.booth_cookie.txt
+cookie*.txt
 
-# ===== Generated artifacts (only if --out points inside this repo) =====
-*.part
-desktop.ini
-.folder_icon.ico
-cover.jpg
-manifest_*.json
-
-# ===== OS / Python noise =====
-Thumbs.db
-.DS_Store
+# Python 缓存
 __pycache__/
 *.pyc
-.venv/
+*.pyo
+
+# 临时 / 回收站
+._booth_trash/
+*.tmp
+.DS_Store
+
+# 本地环境配置（若含敏感信息）
+.env
+*.local

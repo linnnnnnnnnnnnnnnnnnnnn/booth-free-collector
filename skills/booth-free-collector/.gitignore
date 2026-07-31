@@ -1,0 +1,18 @@
+# ===== Secrets: NEVER commit cookies / login sessions =====
+.booth_cookie.txt
+*_cookie.txt
+*_session*
+
+# ===== Generated artifacts (only if --out points inside this repo) =====
+*.part
+desktop.ini
+.folder_icon.ico
+cover.jpg
+manifest_*.json
+
+# ===== OS / Python noise =====
+Thumbs.db
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
