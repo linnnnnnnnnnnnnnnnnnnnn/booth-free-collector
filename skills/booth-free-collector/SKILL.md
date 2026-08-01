@@ -77,6 +77,16 @@ python scripts/booth_free_dl.py "https://atelier-kotone.booth.pm/items/8103811"
 - 商品 JSON API 与商品图（booth.pximg.net）无需登录。
 - R-18 店铺需要 `adult=t` cookie，当前脚本未处理；遇到时在 session 上加 cookie。
 - 文件夹图标机制：`desktop.ini`（UTF-16 编码）+ `IconResource=.folder_icon.ico,0` + 文件夹 ReadOnly 属性缺一不可；图标不即时刷新属 Explorer 缓存正常现象（重开窗口或稍等即可）。
+- **⚠️ 目录被移动/拷贝后图标失效（血泪坑）**：`desktop.ini` / `.folder_icon.ico` / 文件夹的 Hidden / System / ReadOnly 属性在**移动或拷贝目录后会被清掉**，Windows 资源管理器不再读取 desktop.ini → 封面消失（表现为文件夹显示默认图标、或图标过小）。修复脚本 `make_folder_icon` 的幂等分支**必须重新补设属性**（文件在 ≠ 属性在）：
+  ```python
+  if ico.exists() and ini.exists():
+      set_attrs(ico, FILE_ATTRIBUTE_HIDDEN)
+      set_attrs(ini, FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)
+      set_attrs(folder, FILE_ATTRIBUTE_READONLY)
+      return
+  ```
+  批量修复存量库：遍历所有含 desktop.ini 的目录，给 desktop.ini / .folder_icon.ico 补 `Hidden+System`，给文件夹补 `ReadOnly`（2026-08 主上库内 104 目录一次修复）。
+- **⚠️ 分类映射必须与 booth-name-search 保持一致**：本脚本曾把 `3D衣装` 映射为 `3D服装`、`3D環境・ワールド` 映射为 `3D世界`，而整理技能映射为 `3D服饰` / `3D环境`，导致**同一类目分裂成两个目录**（3D服装 与 3D服饰 并存）。已统一以 name-search 为准，且补 `3Dモデル（その他）→3D模型（其他）`、`3Dキャラクター→3D角色`、`3D小道具→3D道具`。改映射后要把旧分类目录合并（移动商品目录 + 重设图标属性）。
 - 请求间隔 0.6~0.8s，礼貌爬取，勿并发轰炸 booth.pm。
 - **代理瞬断**：本地代理（HTTPS_PROXY env）偶发 ProxyError 导致个别文件失败——直接**再跑一遍**即可，幂等重跑只补失败文件（末尾有 FAILED 清单）。
 - 实际文件下载 302 到 `s6.booth.pm`（S3 签名 URL，180 秒时效），Cookie 只在第一跳 booth.pm 需要。

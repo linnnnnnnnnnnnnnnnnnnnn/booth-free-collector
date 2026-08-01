@@ -42,14 +42,18 @@ INVALID = r'<>:"/\\|?*'
 MAX_RETRIES = 3
 
 # BOOTH category name -> Chinese folder name
+# 注意：必须与 booth-name-search 的 CATEGORY_MAP 保持一致！
+# 曾因 3D衣装 在此处映射为「3D服装」而在 name-search 映射为「3D服饰」，
+# 导致同一类目分裂成两个目录。统一以 name-search 为准。
 CATEGORY_MAP = {
     "3Dテクスチャ": "3D贴图",
-    "3D衣装": "3D服装",
+    "3D衣装": "3D服饰",
     "3D装飾品": "3D饰品",
     "3Dモデル": "3D模型",
+    "3Dモデル（その他）": "3D模型（其他）",
     "3Dキャラクター": "3D角色",
     "3D小道具": "3D道具",
-    "3D環境・ワールド": "3D世界",
+    "3D環境・ワールド": "3D环境",
     "3Dモーション・アニメーション": "3D动作",
     "3Dツール・システム": "3D工具",
     "ポスター": "海报",
@@ -304,8 +308,13 @@ def make_folder_icon(folder: Path, cover: Path):
         log("  ! Pillow missing, skip icon"); return
     ico = folder / ".folder_icon.ico"
     ini = folder / "desktop.ini"
+    # 幂等但必须校验属性：文件在 ≠ 属性在。目录被移动/拷贝后
+    # Hidden/System/ReadOnly 属性会丢失，Explorer 不再读 desktop.ini → 封面消失。
     if ico.exists() and ini.exists():
-        return  # already customized (idempotent)
+        set_attrs(ico, FILE_ATTRIBUTE_HIDDEN)
+        set_attrs(ini, FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)
+        set_attrs(folder, FILE_ATTRIBUTE_READONLY)  # tells Explorer folder is customized
+        return
     if ico.exists():
         set_attrs(ico, 0x80)  # clear hidden attr, or PIL can't overwrite
     try:

@@ -145,6 +145,30 @@ Unity 导入 zip 时拿到乱码文件名（如 `E╠üterna Ribbon.unitypackage
 **整理术式侧**：归档正确（7475622 → 3D服饰），但建议在归档目录留 `_ISSUE_*.txt` 标注问题，
 避免主上反复尝试 Unity 导入失败。
 
+#### 4.5 分类目录图标失效（目录被移动/拷贝后）
+现象：文件夹在资源管理器中显示**默认图标或过小图标**、封面不生效——即便 `desktop.ini` 和 `.folder_icon.ico` 文件都在。
+
+根因：Windows 读取 `desktop.ini` 的**前提是文件带 Hidden+System 属性、文件夹带 ReadOnly 属性**；
+目录被移动/拷贝后这些属性会被清掉，资源管理器便不再读 desktop.ini。
+
+修复（批量巡检）：
+```python
+# desktop.ini / .folder_icon.ico → Hidden+System；文件夹 → ReadOnly
+a = ctypes.windll.kernel32.GetFileAttributesW(p)
+ctypes.windll.kernel32.SetFileAttributesW(p, a | 0x02 | 0x04)   # 文件
+ctypes.windll.kernel32.SetFileAttributesW(p, a | 0x01)          # 文件夹
+```
+2026-08-01 主上 `G:\Lin_File\BOOTH` 全库 104 目录一次修复；根因是**别的 agent 运行下载脚本后移动目录**，
+脚本幂等分支只判「文件存在」未补设属性（已修 `booth_free_dl.py`）。
+
+#### 4.6 分类名必须与下载脚本一致（防目录分裂）
+`booth_free_dl.py`（下载）与 `booth_name_search.py`（整理）的 `CATEGORY_MAP` 必须同源：
+曾因下载脚本把 `3D衣装→3D服装`、`3D環境・ワールド→3D世界`，而整理脚本映射为 `3D服饰/3D环境`，
+同一类目分裂成两个目录。统一规则（以本脚本为准）：
+`3D衣装→3D服饰`、`3Dモデル→3D模型`、`3Dモデル（その他）→3D模型（其他）`、
+`3D装飾品→3D饰品`、`3Dキャラクター→3D角色`、`3D小道具→3D道具`、`3D環境・ワールド→3D环境`。
+若发现历史目录分裂（如 `3D服装` 与 `3D服饰` 并存），合并时移动商品目录并重设图标属性。
+
 ### 5. 同名歧义 + 付费精准
 枪械类道具等热门品类可能有多个同名商品。**默认不偏置免费**——拖入的文件是主上「已有」的商品（可能花钱购买），
 偏置免费会把付费商品错配到同名免费兄弟。付费与免费走同一权威分类映射，**绝不因价格改变归类**。
