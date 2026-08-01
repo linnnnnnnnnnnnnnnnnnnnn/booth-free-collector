@@ -13,6 +13,8 @@ import sys
 import time
 import struct
 import ctypes
+import gzip
+import io
 from pathlib import Path
 from urllib.parse import quote
 
@@ -322,13 +324,86 @@ def _norm(s: str) -> str:
     """归一化：小写 + 去所有非字母数字（消空格/标点/中日假名噪声）。"""
     return re.sub(r'[^a-z0-9]', '', (s or '').lower())
 
-def score_and_pick(query: str, items: list[dict], prefer_free=False) -> tuple[dict | None, bool]:
+
+def extract_unitypkg_resource_names(zip_path: str) -> set[str]:
+    """
+    提取 zip 内 .unitypackage 的可读资源名（asset/prefab/mat/anim/unity 等路径末段）。
+
+    用法：当 BOOTH 搜索结果标题与查询词不匹配时（典型：标题日文 + 资源英文），
+    改用本函数提取的内部资源名做二次校验。
+    Unity .unitypackage 实质是 **gzip + tar** 存档：
+    tar 里每条资源是一个 GUID 子目录（含 asset / asset.meta / pathname 三件套），
+    而 **pathname 文件的内容** 才是真正的 Unity 资源路径（如 'Assets/Shapeshifter Clinic/...'）。
+    本函数读取所有 pathname 文本，提取路径段作为资源名集合。
+
+    参考：
+      - 7678707 'FREE無料-PoseAnimationMafuyu' 误配，pathname 含 'Shapeshifter Clinic' / 'STAND.8.anim' →
+        实际是 5740973
+      - Moonpiercer.zip 标题 'Agent Owl'（7441550）不匹配，pathname 含 'Moonpiercer' → 实际是 7441550
+    """
+    import tarfile
+    names: set[str] = set()
+    if not zip_path or not os.path.isfile(zip_path):
+        return names
+    try:
+        import zipfile
+        with zipfile.ZipFile(zip_path) as z:
+            for n in z.namelist():
+                if not n.lower().endswith('.unitypackage'):
+                    continue
+                raw = z.read(n)
+                with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as tf:
+                    for member in tf.getmembers():
+                        if not member.isfile():
+                            continue
+                        # 重点：pathname 文件是真正的 Unity 资源路径
+                        if os.path.basename(member.name) == 'pathname':
+                            try:
+                                f = tf.extractfile(member)
+                                if f is None:
+                                    continue
+                                txt = f.read().decode('utf-8', 'replace')
+                                # pathname 通常是单行路径
+                                for line in txt.splitlines():
+                                    line = line.strip()
+                                    if not line:
+                                        continue
+                                    # 全路径
+                                    full = line.replace('\\', '/')
+                                    # 拆段加入：目录段 + 末段（去扩展名）
+                                    for seg in full.split('/'):
+                                        if not seg or seg.startswith('.'):
+                                            continue
+                                        stem = seg.rsplit('.', 1)[0] if '.' in seg else seg
+                                        if stem and len(stem) >= 2:
+                                            names.add(stem)
+                                        if len(seg) >= 2:
+                                            names.add(seg)
+                            except Exception:
+                                continue
+                        else:
+                            # 兜底：取 tar 成员路径首段（GUID 通常作为目录名）
+                            base = os.path.basename(member.name)
+                            stem = base.rsplit('.', 1)[0] if '.' in base else base
+                            if stem and len(stem) >= 2 and not base.startswith('._'):
+                                names.add(stem)
+    except Exception:
+        pass
+    return names
+
+
+def score_and_pick(query: str, items: list[dict], prefer_free=False,
+                   source_zip_path: str = "") -> tuple[dict | None, bool]:
     """
     从搜索结果中选最佳匹配。
     关键：BOOTH 按别名/标签匹配，卡片 data-product-name 常为日文显示名，
     英文关键词并不出现其中。故用 JSON 规范名（含英文别名）做归一化包含判定。
     单结果直接采信（BOOTH 已定位唯一匹配）；多结果按规范名匹配度排序。
     返回 (最佳商品, 是否歧义)。歧义=次优分差过小，或存在同名不同价的候选。
+
+    source_zip_path: 当所有标题/规范名都不命中查询词、但搜索结果唯一时，
+                    启用「UnityPackage 内部资源名」二次校验。
+                    命中 → 采纳；不命中 → 仍判未匹配。
     """
     if not items:
         return None, False
@@ -363,9 +438,22 @@ def score_and_pick(query: str, items: list[dict], prefer_free=False) -> tuple[di
         if len(items) == 1:
             it = items[0]
             cn = _norm(_canonical_name(it["id"]))
-            nm = _canonical_name(it["id"])  # 兼容别名
             if qn and (qn in cn or qn in _norm(it["name"])):
                 return items[0], False
+            # 标题/规范名都不命中 → 启用「UnityPackage 内部资源名」二次校验
+            if source_zip_path:
+                res_names = extract_unitypkg_resource_names(source_zip_path)
+                if res_names:
+                    qn_norm = _norm(query)
+                    for r in res_names:
+                        rn = _norm(r)
+                        # 查询词的「关键英文段」命中资源名（如 Moonpiercer → 'moonpiercer' 包含）
+                        if qn_norm and (qn_norm in rn or rn in qn_norm):
+                            return items[0], False
+                        # 词级部分匹配（≥3 字符的英文词）
+                        for w in re.split(r'[_\-\s]+', query.lower()):
+                            if len(w) >= 3 and w in r.lower():
+                                return items[0], False
             return None, False  # 单结果但名称不命中 → 视为未匹配，交人工/换关键词
         return None, False
 
@@ -663,7 +751,7 @@ def process_file(filepath: str, base_dir: str, cookie: str = "",
                 if shop_items:
                     results = shop_items
                     # 尝试用文件名去匹配
-                    matched, ambiguous = score_and_pick(candidates[0], results, prefer_free=False)
+                    matched, ambiguous = score_and_pick(candidates[0], results, prefer_free=False, source_zip_path=filepath)
                     if matched:
                         best_item = refine_from_json(matched)
                         print(f"      通过水印店铺匹配: [{best_item['id']}] {best_item['name']}")
@@ -680,7 +768,7 @@ def process_file(filepath: str, base_dir: str, cookie: str = "",
         print(f"      命中: {len(results)} 件")
 
         if results:
-            picked, ambiguous = score_and_pick(q, results, prefer_free=False)
+            picked, ambiguous = score_and_pick(q, results, prefer_free=False, source_zip_path=filepath)
             if picked:
                 if ambiguous and not auto:
                     # 歧义：保存为兜底，继续试下一候选（更短/更干净的候选可能消歧）

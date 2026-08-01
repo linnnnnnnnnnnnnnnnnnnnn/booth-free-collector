@@ -106,6 +106,45 @@ if not scored or scored[0][0] <= 0:
 会把「ピンホール式ミラーボール」这种含误带词的商品捞进来。
 **兜底匹配必须与主关键词做完整包含判定，不可用单词碎片 OR。**
 
+#### 4.3 单结果「名称不命中」不是 100% 误判：必须再解 UnityPackage 验真
+主上后续亲授纠正：
+
+- `Moonpiercer.zip` 全局 `?q=Moonpiercer` 返回唯一结果 7441550「Agent Owl」，标题不命中曾被判误判；
+- 主上解 zip → 解 `.unitypackage` → 导入 Unity 发现是「细剑」→ 搜索「Agent Owl」在 cybercritter 店铺锁定 7441550，
+  内部 UnityPackage 资源名实为 Moonpiercer —— 结论：**唯一结果即使标题不匹配，也可能内部资源名才是真名**。
+
+- `FREE無料-PoseAnimationMafuyu.zip` 外部文件名误导，实际 BOOTH 商品 5740973「Shapeshifter Clinic / Mafuyu FaceAnimation」；
+- 解 UnityPackage 看到内部 `Shapeshifter Clinic` / `Mafuyu FaceAnimation` / `STAND.8.anim`，
+  用「Shapeshifter Clinic」+「Mafuyu」做关键词交叉搜索，命中真身。
+
+**修正（应升级入 `score_and_pick`）**：
+```python
+# 单结果 + 标题不命中 → 不立即判未匹配
+# 进入「UnityPackage 内部线索」兜底：解压 zip → 解 .unitypackage (gzip)
+#   → 提取 Unity 资源名（asset/prefab/mat/anim/unity 三段路径中的可读段）
+#   → 与查询关键词做归一化包含校验
+#   - 命中 → 采纳该唯一结果（即便标题不匹配）
+#   - 不命中 → 返回 None，交人工裁定
+```
+**代价**：每次未命中搜索要解 zip + 解析 gzip 流，批量场景下慢。
+**收益**：避免 Moonpiercer / Mafuyu 这类「标题是日文显示名 + 资源名才是英文真名」的盲点。
+
+#### 4.4 zip 文件名编码陷阱：UTF-8 声明 + Windows cp437 解码乱码
+少数卖家（多为 Linux/macOS 工具链）打 BOOTH 包时 zip 文件名声明 `flag_bits=0x8`（UTF-8），
+但 Windows 默认 cp437 解码时，非 ASCII 字符（如 `É` U+00C9）会显示为乱码（如 `╠ü`）。
+Unity 导入 zip 时拿到乱码文件名（如 `E╠üterna Ribbon.unitypackage`），会判为非法 Package 拒绝导入。
+
+**案例**：7475622「Éterna Ribbon -【キプフェル Kipfel】」zip 内 unitypackage 实际是 gzip 流（14593614 字节），
+仅文件名编码异常，文件本身完整无损。
+
+**修复路径（不归 BOOTH 错，是 BOOTH 商品本身的问题）**：
+1. 用 7-Zip / WinRAR 解压（自动识别 UTF-8）
+2. PowerShell `Expand-Archive -Encoding UTF8`
+3. 联系卖家（`https://kipfel.booth.pm/`）重新打包
+
+**整理术式侧**：归档正确（7475622 → 3D服饰），但建议在归档目录留 `_ISSUE_*.txt` 标注问题，
+避免主上反复尝试 Unity 导入失败。
+
 ### 5. 同名歧义 + 付费精准
 枪械类道具等热门品类可能有多个同名商品。**默认不偏置免费**——拖入的文件是主上「已有」的商品（可能花钱购买），
 偏置免费会把付费商品错配到同名免费兄弟。付费与免费走同一权威分类映射，**绝不因价格改变归类**。
@@ -158,6 +197,81 @@ if not scored or scored[0][0] <= 0:
 
 > 该案例为**手动统合术式**（脚本当前不自动做多文件套装合并）：先按主上指令把变体 zip
 > 聚到临时文件夹，再用 `fetch_item()` + `download_cover()` + `make_folder_icon()` 补全编号与封面。
+
+### 8. 双层文件名线索：拆词 + 解 UnityPackage
+
+主上亲授的两条关键搜索技巧（解决了 `LunariaPaperFan.zip` / `FREE無料-PoseAnimationMafuyu.zip` 两个误归档）：
+
+#### 8.1 大写连写拆词
+**主上原话**：`LunariaPaperFan.zip` 去掉 `.zip` 得 `LunariaPaperFan`，三个大写单词之间加空格 → `Lunaria Paper Fan`，
+就能正确找到原主（BOOTH 7437723「FREE Lunaria Paper Fan (PC/Quest)」，Lunaria Ayaren 店铺）。
+
+**原理**：BOOTH 搜索对驼峰命名极其不友好，「LunariaPaperFan」整体作为关键词几乎搜不到原主，
+但「Lunaria Paper Fan」会被切成 3 个词，全文索引命中所有出现位置。
+类似场景：`SimpleJoinAlert_v100` → `Simple Join Alert`，`StarTiara_v1.0` → `Star Tiara`。
+
+**自动化建议**：在 `sanitize_query()` 末尾加一道「大写字母前插空格」：
+```python
+# 驼峰拆词（CamelCase → spaced words）
+name = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', name)
+# 连续大写也拆：LunariaPaperFan → Lunaria Paper Fan（?<=P）(?=F）会被动）
+# 简化版：仅处理 [a-z][A-Z] 边界；LunariaPaperFan 拆为 Lunaria Paper Fan
+```
+注意保留原候选，新候选追加在尾部，**优先级低于**完整名。
+
+#### 8.2 解 UnityPackage 看内部资源名（深度线索）
+**主上原话**：希望学会把 unitypack 包解开看里面东西去搜索。
+
+**示例（7678707 真身 5740973）**：
+- 外部文件名 `FREE無料-PoseAnimationMafuyu.unitypackage` 误导，「Pose Animation Mafuyu」搜不到原主；
+- 解 UnityPackage（zip 内 .unitypackage = gzip 流）：
+  ```
+  Shapeshifter Clinic/
+    [Mafuyu] FaceAnimation/
+      (FREE$ 無料) Mafuyu/
+        STAND.8.anim        ← 关键资源名
+        ...
+  ```
+- 搜「Shapeshifter Clinic」+「Mafuyu」→ 命中 5740973「動くまばたき Face & Pose Animations」。
+
+**实现要点**（已提议加入 score_and_pick）：
+```python
+import gzip, io
+def extract_unitypkg_resource_names(zip_path: str) -> set[str]:
+    """提取 zip 内 .unitypackage 的可读资源名（asset/prefab/mat/anim/unity 路径段）。"""
+    names = set()
+    with zipfile.ZipFile(zip_path) as z:
+        for n in z.namelist():
+            if n.lower().endswith('.unitypackage'):
+                try:
+                    with gzip.open(io.BytesIO(z.read(n))) as g:
+                        for raw in g.read().decode('utf-8', 'replace').split('\x00'):
+                            if raw and not raw.startswith('._') and len(raw) > 3:
+                                # 取路径末段（如 ".../asset.mat"）
+                                last = raw.rsplit('/', 1)[-1]
+                                if '.' in last:
+                                    stem = last.rsplit('.', 1)[0]
+                                    if stem: names.add(stem)
+                except Exception: pass
+    return names
+```
+
+**搜索策略升级**：单结果 + 标题不命中时，先调用 `extract_unitypkg_resource_names()`，
+再用查询关键词去匹配内部资源名（做归一化包含判定）；命中则采纳。
+
+### 9. 已下架 / 非 BOOTH 商品的归宿
+
+部分商品虽然在 BOOTH 店铺页可查（`https://<店铺>.booth.pm/`）但**单件商品已下架**（`is_end_of_sale: true`），
+无法定位确切 ID；或商品本来就不在 BOOTH（如 Gumroad / Patreon 分发）。
+
+**处理规则**：
+- 不强求 ID，归档到 `G:\Lin_File\BOOTH\已下架商品\`，目录命名 `<店铺>_<商品名>(疑似下架)`，
+  留 `_NOTE.txt` 说明来源店铺与状态。
+- 主上后续如拿到确切 ID，可再用 `process_file(..., force_id=...)` 重新整理。
+
+**案例**：
+- `The_Smile.zip` → `已下架商品/EXEERON_Project_E.G.O笑顔(疑似下架)_The_Smile/_NOTE.txt`
+  记录来源 `https://gardenia601.booth.pm/`、状态「BOOTH 商品疑似下架」。
 
 ## 工作流程
 
