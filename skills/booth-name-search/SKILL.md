@@ -326,6 +326,38 @@ def extract_unitypkg_resource_names(zip_path: str) -> set[str]:
 **搜索策略升级**：单结果 + 标题不命中时，先调用 `extract_unitypkg_resource_names()`，
 再用查询关键词去匹配内部资源名（做归一化包含判定）；命中则采纳。
 
+#### 8.3 UnityPackage 内部资源名的「首段目录 = 店铺名 / 作者名」（硬锚点）
+**主上第三次纠错（6585620 → 5928702）**：
+
+- 目录 `6585620_Crystal Earandtail（耳・猫尻尾・狐尻尾・九尾の4つセット）` 曾被归档到 3D饰品，
+  cover 显示 PIROUETTE_C 女角色 + "EAR AND TAIL / Thx 1st anniv"，zip 内 UnityPackage 资源名
+  `1st earandtail / Pirouette / earandtail1-3.prefab`。
+- 我第一次判断「cover 和 zip 是同一个商品」——**错**。cover 上的 PIROUETTE_C 女角色是**目标 avatar**
+  （配饰要戴在哪个 avatar 上），不是配布店铺本身。
+- 真身是 **5928702「Thx 1st ear and tail 【VRChat】」**（店铺 **Pirouette** = pipi18），
+  因为 UnityPackage 内部资源名的**首段目录 `Pirouette` 就是店铺名**——这是最硬的搜索锚点；
+  而 6585620 是另一家（tubomishop）的同题材商品，封面风格相似但**不是同一件**。
+
+**规则**：
+1. 解 UnityPackage 后，**首段目录名（如 `Pirouette`、`Shapeshifter Clinic`）优先当作店铺名/作者名**，
+   直接搜 `https://booth.pm/ja/items?q=<首段名>` 或去 `https://<子域>.booth.pm/items` 翻页反查。
+2. **封面上的角色/场景 ≠ 配布店铺**——那是展示用的目标 avatar。判断商品归属
+   **以内部资源名 + 店铺子域为准**，不凭封面角色猜。
+3. 相似题材商品（ear and tail、nails、hair 等）多家都有，**必须用内部资源名交叉验证**，
+   不能凭「标题关键词相似」直接归档。
+
+#### 8.4 校验流程：解包三层（压缩包 → UnityPackage → 资源名/店铺名）
+对一个无 ID 的本地包，真身校验的推荐顺序：
+```
+1. 文件名清洗 → ?q= 搜索 → 评分（§4）
+2. 若命中唯一/高分 → 解 zip 内部 .url / readme / 水印（§3）
+3. 仍不确定 → 解 .unitypackage 看资源名：
+   - 首段目录 = 店铺名/作者名（§8.3）→ 搜索该店铺
+   - 内部 prefab/anim 名 = 商品主题（§8.2）→ 交叉验证
+4. 全部交叉命中一致 → 归档；任一环节矛盾 → 上报主上人工裁定
+```
+**血泪总结**：凡「标题相似但内部资源名指向别家」的，一律以**内部资源名 + 店铺**为准。
+
 ### 9. 已下架 / 非 BOOTH 商品的归宿
 
 部分商品虽然在 BOOTH 店铺页可查（`https://<店铺>.booth.pm/`）但**单件商品已下架**（`is_end_of_sale: true`），

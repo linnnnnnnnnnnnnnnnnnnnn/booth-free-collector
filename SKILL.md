@@ -48,11 +48,26 @@ BOOTH（日本数字创作集市，VRChat 素材主产地）素材的**下载 / 
 - **BOOTH 搜索端点**：`https://booth.pm/ja/items?q=词`（`?q=`，非 `?keyword=`——后者忽略关键词恒返 60 件固定列表；`/ja/search` 404）
 - **公开元数据 API**：`https://booth.pm/ja/items/id.json`（免登录取标题/类目/封面 URL）
 - **封面图 CDN**：`booth.pximg.net`（公开可达，整理类技能无需登录即可取封面）
-- **分类汉化**：见各子技能 CATEGORY_MAP（3Dテクスチャ→3D贴图、3D衣装→3D服装、ポスター→海报 等）；未知类目保留日文原名不臆造
+- **分类汉化**：见各子技能 CATEGORY_MAP（3Dテクスチャ→3D贴图、3D衣装→3D服饰、ポスター→海报 等）；未知类目保留日文原名不臆造
 - **免费偏置禁忌**：整理「主上已有」文件（可能花钱）时，评分**不偏置免费**，否则会把付费商品错配到同名免费兄弟
-- **文件名清洗**：去版本号 `_v100`/`v2`/`2.0`、去中文备注、去括号、**下划线→空格**（BOOTH 搜索不认下划线）
+- **文件名清洗**：去版本号 `_v100`/`v2`/`2.0`、去中文备注、去括号、**下划线→空格**（BOOTH 搜索不认下划线）、**驼峰拆词**（`LunariaPaperFan`→`Lunaria Paper Fan`）
 - **压缩包水印识图**：搜索无果时读 `*.url`/`readme.txt` 提取店铺 URL（如封面图右下角 `https://no39.booth.pm/`），跳过店铺根 Cloudflare，直接走 `https://子域名.booth.pm/items?page=N` 翻页反查
+- **UnityPackage 内部资源名是硬线索**：解包后**首段目录名 = 店铺名/作者名**（如 `Pirouette`→pipi18 店铺），内部 prefab/anim 名 = 商品主题；封面上的角色是**目标 avatar 不是配布店铺**，判断归属以内部资源名+店铺子域为准（详见 booth-name-search §8.3/8.4）
 - **隐私铁律**：任何登录 Cookie 仅存本机（`.booth_cookie.txt`），**绝不上传 GitHub**（仓库 .gitignore 已屏蔽）
+
+## 防错速查（血泪案例总结）
+
+| 症状 | 根因 | 修复 |
+|------|------|------|
+| 封面显示默认文件夹图标 | desktop.ini/ico 缺 Hidden+System、文件夹缺 ReadOnly（移动/拷贝丢失） | 批量补属性（见 name-search §4.5） |
+| 封面图标「居中小图」外留白 | cover 是宽幅矩形，PIL 按原图比例生成 ICO 条目（256x154） | 正方形画布 paste 后保存（§4.7） |
+| 图标仍不显示（属性全对） | 目录名含装饰 Unicode（`❥⁺⌖˚🌕💗`），Explorer 永久不读 desktop.ini | `sanitize_filename` 过滤装饰 Unicode + **重启电脑**（§4.8） |
+| 商品被误配张冠李戴 | 单结果盲信 / 标题相似但实为别家 | 名称归一化必须命中 + 解 UnityPackage 校验（§4.1/§4.3/§8.3） |
+| 同题材商品分不清（ear and tail 等） | 只凭标题关键词相似归档 | 内部资源名首段目录=店铺名，交叉验证（§8.3） |
+| zip 导入 Unity 失败 | zip 声明 UTF-8 但 Windows cp437 解码乱码（`É`→`╠ü`） | 7-Zip 重解压 / `Expand-Archive -Encoding UTF8`（§4.4） |
+| 目录分裂成两套（3D服装 vs 3D服饰） | 两个脚本 CATEGORY_MAP 不一致 | 统一映射 + 合并历史目录（§4.6） |
+
+> 各「§」指 `skills/booth-name-search/SKILL.md` 对应章节。
 
 ## 输出目录结构（三子技能同构）
 
