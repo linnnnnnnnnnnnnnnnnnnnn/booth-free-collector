@@ -190,6 +190,25 @@ canvas.save(ico_path, format="ICO", sizes=[(256,256), (128,128), (64,64), (48,48
 **判定哪些目录受影响**：读 `.folder_icon.ico` 的 ICO header，
 若任一条目 `width != height`（如 256x154），就需要重生成。
 
+#### 4.8 Explorer 图标缓存陷阱（含特殊 Unicode 目录名）
+现象：文件、属性、ico、desktop.ini、cover 全部正确，但 Explorer 仍显示**默认文件夹图标**。
+
+根因候选：
+- Windows 资源管理器对含 `⌖` (U+2316)、`˚` (U+02DA)、Arabic combining 等**特殊 Unicode 字符**的目录名应用 desktop.ini 不稳定，**图标缓存不刷新**。
+- 移动/拷贝目录后属性丢失（见 §4.5）。
+
+修复：除了设置属性 + 写入文件外，必须**主动通知 Explorer 刷新**：
+```python
+ctypes.windll.shell32.SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_IDLIST, pidl_item, None)
+# 或全 shell 刷新（粗暴但有效）：
+ctypes.windll.shell32.SHChangeNotify(0x00008000, 0x0000, None, None)
+```
+已在 `make_folder_icon` 末尾集成。若仍不生效：
+```powershell
+ie4uinit.exe -show              # 刷新 Windows 图标缓存
+# 或手动重启资源管理器进程（explorer.exe）
+```
+
 ### 5. 同名歧义 + 付费精准
 枪械类道具等热门品类可能有多个同名商品。**默认不偏置免费**——拖入的文件是主上「已有」的商品（可能花钱购买），
 偏置免费会把付费商品错配到同名免费兄弟。付费与免费走同一权威分类映射，**绝不因价格改变归类**。

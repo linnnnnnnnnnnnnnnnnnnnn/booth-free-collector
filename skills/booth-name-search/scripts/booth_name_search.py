@@ -40,6 +40,7 @@ CATEGORY_MAP = {
     "アバター": "头像", "アバターアイテム": "头像物品", "アバターギミック": "头像机关",
     "アクセサリ": "饰品", "アクセサリー": "饰品", "衣装・アクセサリー": "服饰饰品",
     "衣装": "服饰", "髪": "发型", "ヘアー": "发型", "ヘア": "发型",
+    "バッジ": "徽章",
     "モーション": "动作", "ギミック": "机关", "リギング": "绑定",
     "テクスチャ": "贴图", "テクスチャ素材": "贴图素材", "シェーダー": "着色器",
     "エフェクト": "特效", "ツール": "工具", "ツール・プラグイン": "工具插件",
@@ -602,8 +603,35 @@ def make_folder_icon(cover_path: Path, folder_path: Path):
         # 设置文件夹 ReadOnly（触发 Windows 读取 desktop.ini）
         attrs = ctypes.windll.kernel32.GetFileAttributesW(str(folder_path))
         ctypes.windll.kernel32.SetFileAttributesW(str(folder_path), attrs | 0x01)
+
+        # 通知 Explorer 重新读取 desktop.ini / 图标缓存
+        # SHCNE_UPDATEITEM(0x08) | SHCNE_ATTRIBUTES(0x02)：要求刷新本目录属性/图标
+        # SHCNF_IDLIST(0x0)：用 PIDL（指向具体目录）
+        # 之前 2026-08-01 主上反馈：含特殊 Unicode（⌖ ݁˚）的目录名 + 移动目录后，
+        # Explorer 偶尔缓存旧图标不刷新。SHChangeNotify 强制重读。
+        try:
+            pidl_parent, pidl_item = _get_pidl_pair(str(folder_path))
+            SHCNE_UPDATEITEM = 0x00000008
+            SHCNF_IDLIST = 0x0000
+            ctypes.windll.shell32.SHChangeNotify(
+                SHCNE_UPDATEITEM | SHCNF_IDLIST, 0,
+                pidl_item, None
+            )
+            ctypes.windll.ole32.CoTaskMemFree(pidl_item)
+        except Exception:
+            # PIDL 失败时退化为全 shell 刷新
+            ctypes.windll.shell32.SHChangeNotify(0x00008000, 0x0000, None, None)
     except Exception as e:
         print(f"  图标设置失败: {e}")
+
+
+def _get_pidl_pair(folder_path: str):
+    """取文件夹 PIDL（用于 SHChangeNotify 精准刷新）。"""
+    ole32 = ctypes.windll.ole32
+    shell32 = ctypes.windll.shell32
+    pidl = ctypes.c_void_p()
+    shell32.SHParseDisplayName(folder_path, 0, None, ctypes.byref(ctypes.c_ulong()), ctypes.byref(pidl))
+    return None, pidl
 
 
 # ── 整理文件 ─────────────────────────────────────────────────────
