@@ -169,6 +169,27 @@ ctypes.windll.kernel32.SetFileAttributesW(p, a | 0x01)          # 文件夹
 `3D装飾品→3D饰品`、`3Dキャラクター→3D角色`、`3D小道具→3D道具`、`3D環境・ワールド→3D环境`。
 若发现历史目录分裂（如 `3D服装` 与 `3D服饰` 并存），合并时移动商品目录并重设图标属性。
 
+#### 4.7 ICO 宽幅条目陷阱（血泪修正）
+现象：缩略图中图标**居中显示、外围大片空白**（如「256x154」居中在缩略图里）。
+
+根因：cover.jpg 是宽幅矩形（1024x615 等）时，`PIL.Image.save('xxx.ico', sizes=[(256,256),...])`
+**按原图比例生成 ICO 条目**（256x154），Windows 大图标视图按 ICO header 的 W×H 显示，
+所以缩略图里只看到一个小矩形 + 大量空白。
+
+修复：`make_folder_icon` 必须先粘贴到正方形画布再保存：
+```python
+img = Image.open(cover).convert("RGBA")
+side = max(img.size)
+canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))   # 透明背景
+canvas.paste(img, ((side - img.width) // 2, (side - img.height) // 2))
+canvas.save(ico_path, format="ICO", sizes=[(256,256), (128,128), (64,64), (48,48), (32,32), (16,16)])
+```
+之前 `booth_name_search.py` 的 `make_folder_icon` 漏了这步，导致宽幅 cover 的目录全部出现「居中小图」。
+已全库扫描并重生成 7 个受影响目录（icon header 从 256x154 等变为 256x256）。
+
+**判定哪些目录受影响**：读 `.folder_icon.ico` 的 ICO header，
+若任一条目 `width != height`（如 256x154），就需要重生成。
+
 ### 5. 同名歧义 + 付费精准
 枪械类道具等热门品类可能有多个同名商品。**默认不偏置免费**——拖入的文件是主上「已有」的商品（可能花钱购买），
 偏置免费会把付费商品错配到同名免费兄弟。付费与免费走同一权威分类映射，**绝不因价格改变归类**。
@@ -234,14 +255,12 @@ ctypes.windll.kernel32.SetFileAttributesW(p, a | 0x01)          # 文件夹
 但「Lunaria Paper Fan」会被切成 3 个词，全文索引命中所有出现位置。
 类似场景：`SimpleJoinAlert_v100` → `Simple Join Alert`，`StarTiara_v1.0` → `Star Tiara`。
 
-**自动化建议**：在 `sanitize_query()` 末尾加一道「大写字母前插空格」：
+**已实现**：`sanitize_query()` 策略 1.5 加了驼峰拆词：
 ```python
 # 驼峰拆词（CamelCase → spaced words）
-name = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', name)
-# 连续大写也拆：LunariaPaperFan → Lunaria Paper Fan（?<=P）(?=F）会被动）
-# 简化版：仅处理 [a-z][A-Z] 边界；LunariaPaperFan 拆为 Lunaria Paper Fan
+split_camel = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', name).strip()
+# 作为次优候选（保留原名优先级），类似 LunariaPaperFan → Lunaria Paper Fan
 ```
-注意保留原候选，新候选追加在尾部，**优先级低于**完整名。
 
 #### 8.2 解 UnityPackage 看内部资源名（深度线索）
 **主上原话**：希望学会把 unitypack 包解开看里面东西去搜索。

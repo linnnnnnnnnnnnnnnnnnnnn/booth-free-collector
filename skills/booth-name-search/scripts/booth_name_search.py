@@ -104,11 +104,17 @@ def sanitize_query(filename: str) -> list[str]:
     """
     name = Path(filename).stem  # 去扩展名
 
-    # 0. 下划线 → 空格（主上妙招：BOOTH 搜索对下划线不友好，空格才命中）
+    # 0. 下划线 → 空格（主上验证：SimpleJoinAlert_v100 / Chocolat_Real_skin — BOOTH 不认下划线）
     name = name.replace('_', ' ')
 
     # 去括号及内容  SimpleJoinAlert(1) → SimpleJoinAlert
     name = re.sub(r'[\(（\[【].*?[\)）\]】]', '', name)
+
+    # 0.5 大写连写拆词（主上妙招：LunariaPaperFan → Lunaria Paper Fan 才能命中 7437723；
+    # 类似：StarTiara_v1.0 → Star Tiara，SimpleJoinAlert → Simple Join Alert）
+    # 连续 [a-z][A-Z] 边界插空格；保留原始名作为另一候选
+    split_camel = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', name).strip()
+    split_camel = re.sub(r'\s+', ' ', split_camel)
 
     candidates = []
 
@@ -116,6 +122,10 @@ def sanitize_query(filename: str) -> list[str]:
     c1 = name.strip()
     if c1:
         candidates.append(c1)
+
+    # 策略 1.5: 拆词版（驼峰拆词，主上妙招；优先级低于原名，避免误改）
+    if split_camel and split_camel != c1:
+        candidates.append(split_camel)
 
     # 策略 2: 去版本号
     # 匹配: _v100, v2, 2.0, _v1.2.3, _v2024, Version2, Ver1.0 等
@@ -552,11 +562,21 @@ def set_hidden(path_str: str):
 
 
 def make_folder_icon(cover_path: Path, folder_path: Path):
-    """将 cover.jpg 转为 .folder_icon.ico 并设置 desktop.ini（可覆盖旧文件）。"""
+    """将 cover.jpg 转为 .folder_icon.ico 并设置 desktop.ini（可覆盖旧文件）。
+
+    关键：cover 原图若是宽幅矩形（如 1024x615），PIL.Image.save(..., sizes=[...])
+    会按**原图比例**生成多尺寸 ICO 条目（如 256x154），Windows 大图标视图按 ICO header
+    的 W×H 显示，于是缩略图变成「居中小图、外围大片空白」。
+    修复：先 paste 到 side x side 的透明画布，所有 ICO 条目才会是正方形。
+    """
     if not cover_path or not cover_path.exists():
         return
     try:
         img = Image.open(cover_path).convert("RGBA")
+        # 正方形画布（边长取较长边，透明背景，cover 居中粘贴）
+        side = max(img.size)
+        canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+        canvas.paste(img, ((side - img.width) // 2, (side - img.height) // 2))
         sizes = [(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)]
         ico_path = folder_path / ".folder_icon.ico"
         ini_path = folder_path / "desktop.ini"
@@ -574,7 +594,7 @@ def make_folder_icon(cover_path: Path, folder_path: Path):
                     ctypes.windll.kernel32.SetFileAttributesW(str(p), 0x80)  # NORMAL，清除其余位
                 except Exception:
                     pass
-        img.save(str(ico_path), format="ICO", sizes=sizes)
+        canvas.save(str(ico_path), format="ICO", sizes=sizes)
         ini_path.write_text(ini_content, encoding="utf-8")
         set_hidden(str(ini_path))
         set_hidden(str(ico_path))
