@@ -722,9 +722,45 @@ def organize_file(src_path: str, item_info: dict, base_dir: str, move_mode: bool
 
 
 def sanitize_filename(name: str) -> str:
-    """移除文件名中不允许的字符。"""
+    """移除文件名中不允许的字符 + 装饰 Unicode。
+
+    主上 2026-08-01 反馈：目录名含 `❥ ⁺ ⌖ ˚ ！！ 💗 🌕` 等装饰 Unicode 时，
+    Windows 资源管理器**永久拒绝**为该目录应用 desktop.ini（ie4uinit.exe -show、
+    SHChangeNotify、重启资源管理器均无效）。故必须从源头清洗装饰 Unicode。
+    保留：ASCII（含常见括号/标点）、中日韩（CJK / Hiragana / Katakana）、
+    半角假名、半角数字货币等。
+    """
+    # 1. 去掉 Windows 非法字符
     name = re.sub(r'[<>:"/\\|?*]', '', name)
-    name = name.strip('. ')
+
+    # 2. 去掉装饰 Unicode 区块（血泪坑：导致 Explorer 永久不读 desktop.ini）
+    cleaned = []
+    for ch in name:
+        code = ord(ch)
+        cat = None
+        try:
+            import unicodedata
+            cat = unicodedata.category(ch)
+        except Exception:
+            cat = None
+
+        # 显式剔除：emoji 区块 / 装饰符号块 / 拼音声调
+        # 注：保留 U+FF00-U+FFEF（全角，如 ！！【】）和 U+4E00-U+9FFF + Hiragana/Katakana
+        if (0x1F300 <= code <= 0x1F9FF   # emoji 区块
+            or 0x2000 <= code <= 0x27BF   # General Punctuation / Misc Technical / Dingbats / Symbols（含 ⌖ ❥ ⁺ 💗 🌕 ˚）
+            or 0x2B0  <= code <= 0x2FF    # Spacing Modifier Letters（含 ˚ ˇ ˆ）
+            or 0x2070 <= code <= 0x209F   # Superscripts and Subscripts（含 ⁺ ⁰ ⁵）
+            or cat in ('Me', 'Mn')         # combining marks（拼音声调等）
+            or cat == 'Cn'                 # 未定义 / 私有保留
+        ):
+            continue
+        cleaned.append(ch)
+    name = ''.join(cleaned)
+
+    # 3. 折叠重复空格；去首尾空白 / 点
+    name = re.sub(r'\s+', ' ', name).strip('. ')
+
+    # 4. 截断 + 兜底
     return name[:80] if name else "unnamed"
 
 

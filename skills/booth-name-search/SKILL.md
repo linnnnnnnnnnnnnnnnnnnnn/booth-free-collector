@@ -190,24 +190,29 @@ canvas.save(ico_path, format="ICO", sizes=[(256,256), (128,128), (64,64), (48,48
 **判定哪些目录受影响**：读 `.folder_icon.ico` 的 ICO header，
 若任一条目 `width != height`（如 256x154），就需要重生成。
 
-#### 4.8 Explorer 图标缓存陷阱（含特殊 Unicode 目录名）
-现象：文件、属性、ico、desktop.ini、cover 全部正确，但 Explorer 仍显示**默认文件夹图标**。
+#### 4.8 Explorer 永久拒绝应用 desktop.ini（装饰 Unicode 目录名）
+现象：cover.jpg / .folder_icon.ico / desktop.ini / 属性全部正确，但 Explorer **仍然**显示默认文件夹图标。
+已尝试：SHChangeNotify（PIDL + 全 shell）、`ie4uinit.exe -show`、重启资源管理器——**均无效**。
 
-根因候选：
-- Windows 资源管理器对含 `⌖` (U+2316)、`˚` (U+02DA)、Arabic combining 等**特殊 Unicode 字符**的目录名应用 desktop.ini 不稳定，**图标缓存不刷新**。
-- 移动/拷贝目录后属性丢失（见 §4.5）。
+根因：目录名含装饰 Unicode 时（`❥` U+2765、`⁺` U+207A、`⌖` U+2316、`˚` U+02DA、
+`🌕` U+1F315、`💗` U+1F497、`！！` U+FF01 范围内的部分符号），
+Windows 资源管理器**永久**不读该目录的 desktop.ini（缓存失效，IE4UInit 刷不出来）。
+2026-08-01 主上亲身验证：ie4uinit.exe -show + 重启资源管理器后依旧显示默认文件夹图标。
 
-修复：除了设置属性 + 写入文件外，必须**主动通知 Explorer 刷新**：
+**唯一修复**：从源头清理目录名——`sanitize_filename` 必须过滤装饰 Unicode 区块：
 ```python
-ctypes.windll.shell32.SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_IDLIST, pidl_item, None)
-# 或全 shell 刷新（粗暴但有效）：
-ctypes.windll.shell32.SHChangeNotify(0x00008000, 0x0000, None, None)
+# 剔除（保留 ASCII / 中日韩 / 全角 FF00-FFEF）
+- 0x1F300-0x1F9FF  # emoji 区块
+- 0x2000-0x27BF    # General Punctuation + Misc Technical + Dingbats + Symbols
+- 0x2B0-0x2FF      # Spacing Modifier Letters（含 ˚）
+- 0x2070-0x209F    # Superscripts and Subscripts（含 ⁺）
+- combining marks (Mn/Me) + 未定义 (Cn)
 ```
-已在 `make_folder_icon` 末尾集成。若仍不生效：
-```powershell
-ie4uinit.exe -show              # 刷新 Windows 图标缓存
-# 或手动重启资源管理器进程（explorer.exe）
-```
+示例：BOOTH 原标题「！！SALE~8.31 ！！ 💗【FREE無料】Mafuyu100Type❥動くまばたきFace&PoseAnimations ⌖ ݁˚」
+→ 清洗后「！！SALE~8.31 ！！ 【FREE無料】Mafuyu100Type動くまばたきFace&PoseAnimations」
+→ Explorer 立即显示封面。
+
+已修复 5740973 / 7100790 两个历史目录（重命名 + 重生成图标）。
 
 ### 5. 同名歧义 + 付费精准
 枪械类道具等热门品类可能有多个同名商品。**默认不偏置免费**——拖入的文件是主上「已有」的商品（可能花钱购买），
