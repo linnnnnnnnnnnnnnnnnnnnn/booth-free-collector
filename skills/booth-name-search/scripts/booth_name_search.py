@@ -357,10 +357,16 @@ def score_and_pick(query: str, items: list[dict], prefer_free=False) -> tuple[di
 
     scored.sort(key=lambda x: x[0], reverse=True)
 
-    # 无任何名称匹配：仅当唯一结果时采信（BOOTH 单点命中即真身）
+    # 无任何名称匹配：唯一结果也须名称命中，杜绝「唯一结果即采信」误判
+    # （曾发生 Moonpiercer→Agent Owl、Silent_Talk→插画包、The_Smile→漫画 等 6 起张冠李戴）
     if not scored or scored[0][0] <= 0:
         if len(items) == 1:
-            return items[0], False
+            it = items[0]
+            cn = _norm(_canonical_name(it["id"]))
+            nm = _canonical_name(it["id"])  # 兼容别名
+            if qn and (qn in cn or qn in _norm(it["name"])):
+                return items[0], False
+            return None, False  # 单结果但名称不命中 → 视为未匹配，交人工/换关键词
         return None, False
 
     best_s = scored[0][0]
