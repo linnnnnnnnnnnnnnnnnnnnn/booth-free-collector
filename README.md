@@ -30,6 +30,31 @@ BOOTH（日本数字创作集市，VRChat / VSeeFace / Live2D 等创作者主产
 
 ---
 
+## 一键自学（推荐 · 给 Agent 自己学）
+
+**最快的接入方式**：不用手动 clone / 建链接——直接把下面这段话**连同本仓库链接**丢给任意 AI Agent，
+它会自己 clone 仓库、读 SKILL.md、装依赖、验证结构，然后就能开始干活：
+
+```text
+学习此技能：BOOTH Toolkit（booth-toolkit）— BOOTH 素材统一管理套件
+
+来源：https://github.com/linnnnnnnnnnnnnnnnnnnnn/booth-free-collector
+
+请按以下步骤自学并进入可用状态：
+1. clone 该仓库到你的 skills 目录（或临时目录，之后由你决定链接方式）
+2. 读根目录 SKILL.md 和 README.md，理解父技能与三个子技能的分工
+   （booth-free-collector 下载 / booth-archive-organizer 按ID整理 / booth-name-search 按名搜索）
+3. 为 scripts/ 安装依赖：pip install requests pillow（若无 venv 则先建）
+4. 跑一遍 --help 或 --dry-run 验证脚本可执行
+5. 向我确认「已学会，可以开始处理 BOOTH 素材任务」，等待指令
+```
+
+> 说明：脚本依赖 `requests` + `Pillow`；网络走 `HTTPS_PROXY` 环境变量；
+> 下载类操作需要 BOOTH 登录 Cookie（仅本地使用，见下方隐私声明）。
+> Agent 若无法直接 clone（无网络/无 git），可退回「安装」一节的软链/Junction 方式。
+
+---
+
 ## 安装（Agent Skills 标准做法）
 
 任何遵循以下规范的 Agent 都能直接加载：
