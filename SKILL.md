@@ -66,8 +66,27 @@ BOOTH（日本数字创作集市，VRChat 素材主产地）素材的**下载 / 
 | 同题材商品分不清（ear and tail 等） | 只凭标题关键词相似归档 | 内部资源名首段目录=店铺名，交叉验证（§8.3） |
 | zip 导入 Unity 失败 | zip 声明 UTF-8 但 Windows cp437 解码乱码（`É`→`╠ü`） | 7-Zip 重解压 / `Expand-Archive -Encoding UTF8`（§4.4） |
 | 目录分裂成两套（3D服装 vs 3D服饰） | 两个脚本 CATEGORY_MAP 不一致 | 统一映射 + 合并历史目录（§4.6） |
+| **新**：Hermes 等 agent 整理后图标仍显示默认文件夹 | agent 写残缺 desktop.ini（缺 IconResource 字段）或漏 .folder_icon.ico | **完整性契约**（`make_folder_icon` 写完必自检三件套 + IconResource 字段）+ `scripts/audit_folder_icons.py` 全库巡检修复 |
 
 > 各「§」指 `skills/booth-name-search/SKILL.md` 对应章节。
+
+---
+
+## 完整性契约（强制规则）
+
+**任何 agent 用本 Skill 整理商品目录后，必须满足三件套齐全**：
+1. `cover.jpg`（商品首图）
+2. `.folder_icon.ico`（≥1KB，含 256×256 正方形条目）
+3. `desktop.ini`（**必须**含 `IconResource=.folder_icon.ico,0` 字段）+ Hidden+System 属性
+
+`make_folder_icon()` 内置完整性自检：写完立刻读回 ini 校验 `IconResource` 字段，
+任一缺失即 raise `IconContractError` 并清理已写的 ini，**不留半成品**。
+
+**自检工具**：`python scripts/audit_folder_icons.py [--dry-run]`
+- 扫描 `<base>/` 下所有商品目录，4 类问题：① ini 缺 IconResource ② ico 缺失/过小
+  ③ ICO 含非正方形条目（宽幅陷阱）④ 属性不全（ini 缺 H/S、文件夹缺 R）
+- 默认自动修复（有 cover 的就走 `make_folder_icon` 重写）
+- 任何 agent（Hermes / WorkBuddy / 自定义）整理后**应主动跑一次 audit**
 
 ## 输出目录结构（三子技能同构）
 
