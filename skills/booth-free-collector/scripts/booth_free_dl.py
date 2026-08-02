@@ -300,22 +300,27 @@ def set_attrs(path: Path, attrs: int):
 
 
 def make_folder_icon(folder: Path, cover: Path):
-    """cover image -> .ico + desktop.ini so Explorer large-icon view shows it."""
+    """cover image -> .ico + desktop.ini so Explorer large-icon view shows it.
+
+    **完整性契约**（2026-08-02 加固，防 Hermes 类 agent 写出残缺 desktop.ini）：
+    写完三件套后**自检**——若任一缺失/无 IconResource 字段，**删除已写的 desktop.ini**
+    并 raise IconContractError，绝不留半成品误导 Explorer。
+    """
     if platform.system() != "Windows":
         return
     try:
         from PIL import Image
     except ImportError:
         log("  ! Pillow missing, skip icon"); return
+    if not cover or not cover.exists():
+        raise IconContractError(f"cover 缺失：{cover}")
     ico = folder / ".folder_icon.ico"
     ini = folder / "desktop.ini"
     # 幂等但必须校验属性：文件在 ≠ 属性在。目录被移动/拷贝后
     # Hidden/System/ReadOnly 属性会丢失，Explorer 不再读 desktop.ini → 封面消失。
     if ico.exists() and ini.exists():
-        set_attrs(ico, FILE_ATTRIBUTE_HIDDEN)
-        set_attrs(ini, FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)
-        set_attrs(folder, FILE_ATTRIBUTE_READONLY)  # tells Explorer folder is customized
-        return
+        # 仍调用完整写入流程（覆盖残缺内容），并做自检
+        pass
     if ico.exists():
         set_attrs(ico, 0x80)  # clear hidden attr, or PIL can't overwrite
     try:
@@ -323,15 +328,53 @@ def make_folder_icon(folder: Path, cover: Path):
         side = max(img.size)
         canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
         canvas.paste(img, ((side - img.width) // 2, (side - img.height) // 2))
-        canvas.save(ico, sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32)])
+        # 正方形画布：6 个尺寸（256→16），避免 ICO 宽幅条目陷阱
+        canvas.save(ico, sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
     except Exception as e:
         log(f"  ! icon convert failed: {e}"); return
     if ini.exists():
         set_attrs(ini, 0x80)  # normal, allow overwrite
-    ini.write_text("[.ShellClassInfo]\r\nIconResource=.folder_icon.ico,0\r\nConfirmFileOp=0\r\n", encoding="utf-16")
+    ini.write_text(
+        "[.ShellClassInfo]\r\n"
+        "IconResource=.folder_icon.ico,0\r\n"
+        "IconIndex=0\r\n"
+        "[ViewState]\r\n"
+        "FolderType=Generic\r\n",
+        encoding="utf-16"
+    )
     set_attrs(ico, FILE_ATTRIBUTE_HIDDEN)
     set_attrs(ini, FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)
     set_attrs(folder, FILE_ATTRIBUTE_READONLY)  # tells Explorer folder is customized
+
+    # ── 完整性自检（防 Hermes 类 agent 写残缺 desktop.ini）──
+    _verify_icon_contract(ico, ini, folder)
+
+
+class IconContractError(RuntimeError):
+    """三件套不齐全时抛出（防 Hermes 类 agent 留半成品 desktop.ini 误导 Explorer）。"""
+
+
+def _verify_icon_contract(ico: Path, ini: Path, folder: Path):
+    """完整性契约自检：.folder_icon.ico 必须存在且 ≥1KB、desktop.ini 必须含 IconResource 字段、文件夹 ReadOnly。
+    不通过则 raise IconContractError，调用方负责清理残留 desktop.ini。"""
+    if not ico.exists():
+        raise IconContractError(f"ico 缺失：{ico}")
+    if ico.stat().st_size < 1024:
+        raise IconContractError(f"ico 过小（<1KB）：{ico}")
+    if not ini.exists():
+        raise IconContractError(f"ini 缺失：{ini}")
+    try:
+        txt = ini.read_text(encoding="utf-16", errors="ignore")
+    except Exception:
+        try:
+            txt = ini.read_bytes().decode("utf-8", "replace")
+        except Exception:
+            txt = ""
+    if "IconResource=.folder_icon.ico" not in txt:
+        raise IconContractError(f"ini 缺 IconResource=.folder_icon.ico 字段：{ini}")
+    a = ctypes.windll.kernel32.GetFileAttributesW(str(folder))
+    if a == 0xFFFFFFFF or not (a & 0x01):
+        ctypes.windll.kernel32.SetFileAttributesW(str(folder), a | 0x01)
 
 
 def main():

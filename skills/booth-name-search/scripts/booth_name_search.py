@@ -555,11 +555,17 @@ def download_cover(thumb_url: str, dest_dir: Path) -> Path | None:
 
 # ── Windows 文件夹图标 ──────────────────────────────────────────
 def set_hidden(path_str: str):
-    """用 ctypes 设置文件/文件夹的隐藏属性（兼容 Python < 3.14）。"""
+    """用 ctypes 设置文件/文件夹的 Hidden+System 属性（兼容 Python < 3.14）。
+
+    2026-08-02 修正：之前只设了 FILE_ATTRIBUTE_HIDDEN，没设 SYSTEM，导致 desktop.ini 只有 H 缺 S，
+    全库 11+ 个目录都被 audit_folder_icons 报"ini 属性 H（缺 H/S）"。
+    Explorer 要求 desktop.ini 必须 Hidden+System 同时具备才读取——System 标记是 Win10+ 的新约束。
+    """
     FILE_ATTRIBUTE_HIDDEN = 0x02
+    FILE_ATTRIBUTE_SYSTEM  = 0x04
     attrs = ctypes.windll.kernel32.GetFileAttributesW(path_str)
     if attrs != 0xFFFFFFFF:
-        ctypes.windll.kernel32.SetFileAttributesW(path_str, attrs | FILE_ATTRIBUTE_HIDDEN)
+        ctypes.windll.kernel32.SetFileAttributesW(path_str, attrs | FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)
 
 
 def make_folder_icon(cover_path: Path, folder_path: Path):
@@ -569,9 +575,13 @@ def make_folder_icon(cover_path: Path, folder_path: Path):
     会按**原图比例**生成多尺寸 ICO 条目（如 256x154），Windows 大图标视图按 ICO header
     的 W×H 显示，于是缩略图变成「居中小图、外围大片空白」。
     修复：先 paste 到 side x side 的透明画布，所有 ICO 条目才会是正方形。
+
+    **完整性契约**（2026-08-02 加固，防 Hermes 类 agent 写出残缺 desktop.ini）：
+    写完三件套后**自检**——若任一缺失/无 IconResource 字段，**删除已写的 desktop.ini**
+    并 raise IconContractError，绝不留半成品误导 Explorer。
     """
     if not cover_path or not cover_path.exists():
-        return
+        raise IconContractError(f"cover 缺失：{cover_path}")
     try:
         img = Image.open(cover_path).convert("RGBA")
         # 正方形画布（边长取较长边，透明背景，cover 居中粘贴）
@@ -604,6 +614,9 @@ def make_folder_icon(cover_path: Path, folder_path: Path):
         attrs = ctypes.windll.kernel32.GetFileAttributesW(str(folder_path))
         ctypes.windll.kernel32.SetFileAttributesW(str(folder_path), attrs | 0x01)
 
+        # ── 完整性自检（防 Hermes 类 agent 写残缺 desktop.ini）──
+        _verify_icon_contract(ico_path, ini_path, folder_path)
+
         # 通知 Explorer 重新读取 desktop.ini / 图标缓存
         # SHCNE_UPDATEITEM(0x08) | SHCNE_ATTRIBUTES(0x02)：要求刷新本目录属性/图标
         # SHCNF_IDLIST(0x0)：用 PIDL（指向具体目录）
@@ -621,8 +634,45 @@ def make_folder_icon(cover_path: Path, folder_path: Path):
         except Exception:
             # PIDL 失败时退化为全 shell 刷新
             ctypes.windll.shell32.SHChangeNotify(0x00008000, 0x0000, None, None)
+    except IconContractError:
+        raise
     except Exception as e:
-        print(f"  图标设置失败: {e}")
+        # 任何异常都先清理可能写了一半的 desktop.ini，再抛出
+        ini = folder_path / "desktop.ini"
+        if ini.exists():
+            try:
+                ctypes.windll.kernel32.SetFileAttributesW(str(ini), 0x80)
+                ini.unlink()
+            except Exception:
+                pass
+        raise IconContractError(f"图标设置失败（已清理残缺 desktop.ini）：{e}")
+
+
+class IconContractError(RuntimeError):
+    """三件套不齐全时抛出（防 Hermes 类 agent 留半成品 desktop.ini 误导 Explorer）。"""
+
+
+def _verify_icon_contract(ico_path, ini_path, folder_path):
+    """完整性契约自检：.folder_icon.ico 必须存在且 ≥1KB、desktop.ini 必须含 IconResource 字段、文件夹 ReadOnly。
+    不通过则 raise IconContractError，调用方负责清理残留 desktop.ini。"""
+    # 1. .folder_icon.ico 必须存在且 ≥ 1KB
+    if not ico_path.exists():
+        raise IconContractError(f"ico 缺失：{ico_path}")
+    if ico_path.stat().st_size < 1024:
+        raise IconContractError(f"ico 过小（<1KB）：{ico_path}")
+    # 2. desktop.ini 必须含 IconResource=.folder_icon.ico 字段
+    if not ini_path.exists():
+        raise IconContractError(f"ini 缺失：{ini_path}")
+    try:
+        txt = ini_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        txt = ini_path.read_bytes().decode("utf-8", "replace")
+    if "IconResource=.folder_icon.ico" not in txt:
+        raise IconContractError(f"ini 缺 IconResource=.folder_icon.ico 字段：{ini_path}")
+    # 3. 文件夹需有 ReadOnly 标记（Explorer 触发条件）
+    a = ctypes.windll.kernel32.GetFileAttributesW(str(folder_path))
+    if a == 0xFFFFFFFF or not (a & 0x01):
+        ctypes.windll.kernel32.SetFileAttributesW(str(folder_path), a | 0x01)
 
 
 def _get_pidl_pair(folder_path: str):
