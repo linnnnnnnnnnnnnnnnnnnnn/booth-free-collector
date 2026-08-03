@@ -82,6 +82,7 @@ python scripts/booth.py audit    [--base DIR] [--dry-run]                    # �
 | 目录分裂成两套（3D服装 vs 3D服饰） | 脚本间 CATEGORY_MAP 不一致 | 统一到 `booth_common.CATEGORY_MAP`（§4.6） |
 | **新**：Hermes 等 agent 整理后图标仍显示默认文件夹 | agent 写残缺 desktop.ini（缺 IconResource 字段）或漏 .folder_icon.ico | **完整性契约**（`make_folder_icon` 写完必自检三件套 + IconResource 字段）+ `booth.py audit` 全库巡检修复 |
 | **新**：日文+英文+版本号混合名搜不到 | BOOTH 索引对混合串匹配差 | 只搜纯日文主体段（§8.5） |
+| **新**：整理后文件名版本号丢失（Ver_2.00 → 纯标题） | `organize_file` 只用商品标题生成文件名 | `extract_version_tag` 从原文件名提取版本拼到标题后（§8.6） |
 
 > 各「§」指 `skills/booth-name-search/SKILL.md` 对应章节。
 

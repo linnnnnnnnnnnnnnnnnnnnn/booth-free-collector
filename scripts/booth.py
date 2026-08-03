@@ -312,10 +312,13 @@ def organize_file(src_path: str, item_info: dict, base_dir: str, move_mode: bool
     cat_cn = bc.classify(cat_raw, item_info.get("category_parent", ""))
     thumb = item_info.get("thumbnail", "")
     folder_name = f"{item_id}_{title}"
+    # 保留原文件名的版本标记（血泪：メカ弾エフェクトVer_2.00 → 纯标题丢版本）
+    version_tag = bc.extract_version_tag(src.name)
+    file_name = folder_name if not version_tag else f"{folder_name} {version_tag}"
     cat_dir = base / cat_cn
     dest_dir = cat_dir / folder_name
     dest_dir.mkdir(parents=True, exist_ok=True)
-    dest_file = dest_dir / f"{folder_name}{src.suffix}"
+    dest_file = dest_dir / f"{file_name}{src.suffix}"
     cover = dest_dir / "cover.jpg"
 
     # 幂等：已含重命名包 + 有效封面，仅补图标

@@ -245,6 +245,28 @@ def sanitize(name: str, max_len: int = 70) -> str:
     return out or "untitled"
 
 
+_VERSION_RE = re.compile(
+    r'(?:ver(?:sion)?\.?|v\.?)\s*(\d+(?:\.\d+)*)', re.IGNORECASE)
+
+
+def extract_version_tag(filename: str) -> str:
+    """从文件名提取版本标记（如 Ver_2.00 / v1.01 / _v100 / 2.0）。
+
+    用于 organize_file 生成目标文件名时**保留版本信息**——血泪教训：
+    メカ弾エフェクトVer_2.00.unitypackage 被整理成纯标题文件名后版本号丢失，
+    用户无法区分 2.00 / 1.01 两个免费版本。返回规范化 "Ver_x.y" 或空串。
+    """
+    stem = Path(filename).stem
+    m = _VERSION_RE.search(stem)
+    if m:
+        return f"Ver_{m.group(1)}"
+    # 无 ver 前缀的裸版本号（如 name_2.0 / name-1.01）
+    m2 = re.search(r'[_\-\s](\d+\.\d+(?:\.\d+)*)\s*$', stem)
+    if m2:
+        return f"Ver_{m2.group(1)}"
+    return ""
+
+
 def sanitize_query(filename: str) -> list[str]:
     """
     从文件名生成 BOOTH 搜索候选关键词（按优先级排序，首个最可能命中）。
