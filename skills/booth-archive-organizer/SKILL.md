@@ -56,23 +56,26 @@ Windows 资源管理器「大图标」视图即可直接预览封面，与下载
    `desktop.ini` + 文件夹加只读位 → 大图标直显封面。
 6. **幂等**：目标文件夹已含重命名包 + 有效 `cover.jpg` 时，仅补齐缺失的封面/图标，不重复移动。
 
-## 用法
+## 用法（统一 CLI：`booth.py organize`）
+
+> 本子技能与其他两个子技能已合并为单一入口 `scripts/booth.py`，公共逻辑在 `scripts/booth_common.py`。
+> 本子技能 = `booth.py organize` 子命令。
 
 ```bash
 # 单个归档（最常用：用户直接把文件丢进来）
-python scripts/organize_booth_archive.py "G:/圣域/安装残留/11_待定_其他/已判定/跟随悬浮机-6504842等3个文件.rar"
+python scripts/booth.py organize "G:/圣域/安装残留/11_待定_其他/已判定/跟随悬浮机-6504842等3个文件.rar"
 
 # 多个一起
-python scripts/organize_booth_archive.py "a.rar" "b.zip" --out "G:/Lin_File/BOOTH"
+python scripts/booth.py organize "a.rar" "b.zip" --out "G:/Lin_File/BOOTH"
 
 # 文件名里没有 ID / 想强制指定
-python scripts/organize_booth_archive.py "weird_name.rar" --id 6504842
+python scripts/booth.py organize "weird_name.rar" --id 6504842
 
 # 先看会做什么、不动文件
-python scripts/organize_booth_archive.py "xxx.rar" --dry-run
+python scripts/booth.py organize "xxx.rar" --dry-run
 ```
 
 依赖：`requests`、`Pillow`（均已装于默认 venv）。网络走 `HTTPS_PROXY` 环境变量。
 
 > 隐私：本术式不读取、不要求任何 BOOTH 登录 Cookie（整理只需公开元数据与公开封面 CDN）。
-> 若将来需要把压缩包内的免费文件也按下载术式补封面，则另走 `booth-free-collector`。
+> 若将来需要把压缩包内的免费文件也按下载术式补封面，则另走 `booth.py download`。

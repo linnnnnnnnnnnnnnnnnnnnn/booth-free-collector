@@ -8,24 +8,35 @@ BOOTH（日本数字创作集市，VRChat / VSeeFace / Live2D 等创作者主产
 
 ---
 
+## 统一 CLI（三合一）
+
+三个子技能已合并为**单一脚本** `scripts/booth.py`（公共逻辑 `scripts/booth_common.py`）：
+
+```bash
+python scripts/booth.py download <店铺URL|散链> [--cookie C] [--out DIR] [--dry-run]
+python scripts/booth.py organize   <本地包...> [--id ID] [--out DIR] [--dry-run]
+python scripts/booth.py search     <本地文件...> [--id ID] [--base-dir DIR] [--dry-run]
+python scripts/booth.py audit      [--base DIR] [--dry-run]
+```
+
 ## 子技能分工
 
-| 子技能 | 何时使用 | 入口 |
+| 子技能 | 何时使用 | 命令 |
 |--------|---------|------|
-| **booth-free-collector** | 给整店 URL 或散链，**从网上爬取并下载**免费商品（需登录 Cookie） | `skills/booth-free-collector/` |
-| **booth-archive-organizer** | 本地压缩包**文件名含 7 位 BOOTH ID**，按 ID 取元数据整理（无需登录） | `skills/booth-archive-organizer/` |
-| **booth-name-search** | 本地压缩包**无 ID、只有商品名**，按名字搜索 BOOTH 整理（含水印识别 + UnityPackage 内部资源名兜底） | `skills/booth-name-search/` |
+| **booth-free-collector** | 给整店 URL 或散链，**从网上爬取并下载**免费商品（需登录 Cookie） | `booth.py download` |
+| **booth-archive-organizer** | 本地压缩包**文件名含 7 位 BOOTH ID**，按 ID 取元数据整理（无需登录） | `booth.py organize` |
+| **booth-name-search** | 本地压缩包**无 ID、只有商品名**，按名字搜索 BOOTH 整理（含水印识别 + UnityPackage 内部资源名兜底 + 纯日文主体搜索） | `booth.py search` |
 
 ### 决策树
 
 ```
 用户丢来一个文件 / 链接
 ├─ 是 BOOTH 店铺 URL 或商品散链（booth.pm/...）
-│   └─► booth-free-collector        （从网上下载）
+│   └─► booth.py download           （从网上下载）
 ├─ 是本地压缩包，文件名含 7 位数字 ID（如「跟随悬浮机-6504842.zip」）
-│   └─► booth-archive-organizer     （按 ID 取元数据整理）
+│   └─► booth.py organize           （按 ID 取元数据整理）
 └─ 是本地压缩包，无 ID，主上确认是 BOOTH 商品名（如 SimpleJoinAlert_v100.zip）
-    └─► booth-name-search           （按名字搜索 + UnityPackage 资源名锚点）
+    └─► booth.py search             （按名字搜索 + UnityPackage 资源名锚点）
 ```
 
 ---
@@ -42,10 +53,10 @@ BOOTH（日本数字创作集市，VRChat / VSeeFace / Live2D 等创作者主产
 
 请按以下步骤自学并进入可用状态：
 1. clone 该仓库到你的 skills 目录（或临时目录，之后由你决定链接方式）
-2. 读根目录 SKILL.md 和 README.md，理解父技能与三个子技能的分工
-   （booth-free-collector 下载 / booth-archive-organizer 按ID整理 / booth-name-search 按名搜索）
+2. 读根目录 SKILL.md 和 README.md，理解统一 CLI 与三个子技能的映射
+   （booth.py download 下载 / booth.py organize 按ID整理 / booth.py search 按名搜索 / booth.py audit 巡检）
 3. 为 scripts/ 安装依赖：pip install requests pillow（若无 venv 则先建）
-4. 跑一遍 --help 或 --dry-run 验证脚本可执行
+4. 跑一遍 `python scripts/booth.py --help` 或 `--dry-run` 验证脚本可执行
 5. 向我确认「已学会，可以开始处理 BOOTH 素材任务」，等待指令
 ```
 
@@ -60,7 +71,7 @@ BOOTH（日本数字创作集市，VRChat / VSeeFace / Live2D 等创作者主产
 任何遵循以下规范的 Agent 都能直接加载：
 
 - **父技能**：识别仓库根的 `SKILL.md`，按文件树的子目录加载 `skills/<name>/SKILL.md`
-- **脚本执行**：`python scripts/<name>.py <args>`，依赖 `requests` + `Pillow`
+- **脚本执行**：`python scripts/booth.py <download|organize|search|audit> <args>`，依赖 `requests` + `Pillow`
 
 ```bash
 git clone https://github.com/linnnnnnnnnnnnnnnnnnnnn/booth-free-collector.git

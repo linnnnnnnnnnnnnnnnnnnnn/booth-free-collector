@@ -37,20 +37,23 @@ group: 游戏与 XR
 
 判定逻辑见 `parse_discrete()`：先抽 `/items/<id>`，再补抽裸数字 ID（5 位以上），去重保序。
 
-## 用法
+## 用法（统一 CLI：`booth.py download`）
+
+> 本子技能与其他两个子技能已合并为单一入口 `scripts/booth.py`，公共逻辑在 `scripts/booth_common.py`。
+> 本子技能 = `booth.py download` 子命令。
 
 ```bash
 # 按店铺整店下载
-python scripts/booth_free_dl.py "https://atelier-kotone.booth.pm/" --out "./booth_downloads"
+python scripts/booth.py download "https://atelier-kotone.booth.pm/" --out "./booth_downloads"
 
 # 朋友/群里分享的零散链接（自动判定为散链模式）
-python scripts/booth_free_dl.py --items \
+python scripts/booth.py download --items \
   "https://atelier-kotone.booth.pm/items/6574952" \
   "https://booth.pm/ja/items/6574953" \
   "8103811"   # 裸 ID 也可
 
 # 单条商品链接直接丢进去也行
-python scripts/booth_free_dl.py "https://atelier-kotone.booth.pm/items/8103811"
+python scripts/booth.py download "https://atelier-kotone.booth.pm/items/8103811"
 ```
 
 参数：

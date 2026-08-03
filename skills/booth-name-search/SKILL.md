@@ -358,6 +358,23 @@ def extract_unitypkg_resource_names(zip_path: str) -> set[str]:
 ```
 **血泪总结**：凡「标题相似但内部资源名指向别家」的，一律以**内部资源名 + 店铺**为准。
 
+#### 8.5 纯日文主体搜索 + 商品页下载文件名锚点（终极两招）
+**主上亲授（2026-08-03，メカ弾エフェクトVer_2.00 案例）**：
+
+- 文件名 `メカ弾エフェクトVer_2.00.unitypackage` 按 `メカ弾エフェクトVer 2.00` 搜 → 20 件全跑偏；
+  按 `メカ弾エフェクトVer` → 60 件无命中。
+- **第一招（纯日文主体）**：去掉尾部英文/版本号，**只搜日文段 `メカ弾エフェクト`** → 直接命中
+  3562410「VRC用 『メカ弾エフェクト』」（超兵器工房 ¥0，原始本体）。
+  BOOTH 全文索引对「日文+英文+数字」混合串匹配差，纯日文段命中率最高——驼峰拆词的日文版。
+  已实现：`sanitize_query` 策略 1.6 追加 `re.findall(r'[\u3040-\u30ff\u4e00-\u9fff][\u3040-\u30ff\u4e00-\u9fff・ー]*', name)` 候选。
+- **第二招（商品页下载文件名 = 终极锚点）**：候选歧义（3562410 / 7390041 MA改版 / 6769910 扩展包）时，
+  **打开商品页看「免费下载」区的实际文件名**：3562410 就是 `メカ弾エフェクトVer_2.00.zip`（12.7MB）
+  与本地 `Ver_2.00.unitypackage` 前缀/版本号完全命中 → 100% 确认。
+  `fetch_item` 公开 JSON **不含** downloadables 文件名（需登录），须 WebFetch 商品页提取。
+
+**决策规则**：标题/评分都拿不准时，优先查**商品页下载文件名**（比标题/店铺名都硬），
+再不行才上报主上人工裁定。
+
 ### 9. 已下架 / 非 BOOTH 商品的归宿
 
 部分商品虽然在 BOOTH 店铺页可查（`https://<店铺>.booth.pm/`）但**单件商品已下架**（`is_end_of_sale: true`），
@@ -392,29 +409,32 @@ def extract_unitypkg_resource_names(zip_path: str) -> set[str]:
    - 设图标 → `.folder_icon.ico` + `desktop.ini`（写入前清旧隐藏属性，可覆盖）
 8. **若全部无果**：上报主上，告知「不在 BOOTH」并保留源文件
 
-## 用法
+## 用法（统一 CLI：`booth.py search`）
+
+> 本子技能与其他两个子技能已合并为单一入口 `scripts/booth.py`，公共逻辑在 `scripts/booth_common.py`。
+> 本子技能 = `booth.py search` 子命令。
 
 ```bash
 # 单个文件（最常用：用户直接把文件丢进来）——默认移动整理，源处不留尸体
-python scripts/booth_name_search.py "G:/圣域/安装残留/SimpleJoinAlert_v100.zip"
+python scripts/booth.py search "G:/圣域/安装残留/SimpleJoinAlert_v100.zip"
 
 # 多个文件一起
-python scripts/booth_name_search.py "a.zip" "b.rar" --base-dir "G:/Lin_File/BOOTH"
+python scripts/booth.py search "a.zip" "b.rar" --base-dir "G:/Lin_File/BOOTH"
 
 # 先看搜索结果，不动文件
-python scripts/booth_name_search.py "xxx.zip" --dry-run
+python scripts/booth.py search "xxx.zip" --dry-run
 
 # 歧义时由主上确认正确商品后，用 --id 强制指定重跑
-python scripts/booth_name_search.py "xxx.zip" --id 6979951
+python scripts/booth.py search "xxx.zip" --id 6979951
 
 # 歧义也强制自动选最佳（不询问）
-python scripts/booth_name_search.py "xxx.zip" --auto
+python scripts/booth.py search "xxx.zip" --auto
 
 # 复制而非移动（保留源文件）
-python scripts/booth_name_search.py "xxx.zip" --keep
+python scripts/booth.py search "xxx.zip" --keep
 
 # 提供 cookie 以支持自动更新下载
-python scripts/booth_name_search.py "xxx.zip" --cookie-file .booth_cookie.txt
+python scripts/booth.py search "xxx.zip" --cookie-file .booth_cookie.txt
 ```
 
 依赖：`requests`、`Pillow`（均已装于默认 venv）。网络走 `HTTPS_PROXY` 环境变量。
