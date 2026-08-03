@@ -375,18 +375,35 @@ def extract_unitypkg_resource_names(zip_path: str) -> set[str]:
 **决策规则**：标题/评分都拿不准时，优先查**商品页下载文件名**（比标题/店铺名都硬），
 再不行才上报主上人工裁定。
 
-#### 8.6 整理后文件名必须保留版本号（血泪：Ver_2.00 丢失）
-**主上亲授（2026-08-03，3562410 二次反馈）**：`メカ弾エフェクトVer_2.00.unitypackage`
+#### 8.6 内部文件名保持原名 + 版本号（血泪：Ver_2.00 丢失 → 三连修正）
+**主上亲授（2026-08-03，3562410 三次反馈）**：`メカ弾エフェクトVer_2.00.unitypackage`
 整理后被 `organize_file` 改成纯标题 `3562410_VRC用 『メカ弾エフェクト』.unitypackage`，
 **版本号 Ver_2.00 被丢弃**——商品页明明有 2.00 / 1.01 两个免费版本，文件名却看不出是哪个。
 
-- **规则**：`organize_file` 生成目标文件名时，必须从**原文件名**提取版本标记并拼到商品标题后：
-  `3562410_VRC用 『メカ弾エフェクト』 Ver_2.00.unitypackage`
-- **实现**：`booth_common.extract_version_tag(filename)` 正则提取
-  `Ver_2.00 / v1.01 / _v100 / 2.0`（无前缀裸版本号也认），无版本则返回空串不拼接。
-- **幂等**：同目录多版本共存（`... Ver_2.00.unitypackage` + `... Ver_1.01.unitypackage`），
-  互不覆盖；目录名仍用 `ID_标题`（版本放文件名，不放目录名，避免同商品分目录）。
+**最终规则（主上拍板）**：
+- **目录名** = `ID_标题`（分类识别用，承载 ID 信息）
+- **内部文件名** = **保持原文件名**（原名自带版本号，如 `メカ弾エフェクトVer_2.00.unitypackage`），
+  不要改写成 `ID_标题` 或 `ID_标题 Ver_2.00`——目录已承载 ID，文件名保持商品页下载区原名即可。
+- **实现**：`organize_file` / `organize_one` 目标文件名直接用 `bc.sanitize(src.name, 120)`（原文件名清洗），
+  不再用标题拼接。
 - **教训**：搜索时可以**去版本号**（§8.5），但**落盘文件名必须留版本号**——两者目的相反，别混。
+
+#### 8.7 多免费版本自动补全（2~3 个版本全下载）
+**主上规则（2026-08-03）**：商品页有 2~3 个免费文件（3562410 有 `Ver_2.00.zip` + `Ver_1.01.zip`），
+本地只有其中 1 个 → **其余全部下载补全**。
+
+- **检测免登录**：公开 JSON `variations[].downloadable` **已含完整文件清单+URL**（实测 3562410 确认）。
+  ⚠️ **更正 §8.5 旧结论**：之前误记「公开 JSON 不含 downloadables 需登录」——错的，公开 JSON 就有！
+- **下载需登录**：BOOTH 免费文件也要登录才能下载（未登录返回登录页 HTML，脚本 `looks_html`/`valid_file`
+  检测报错）。organize/search 加 `--cookie`（原始串 / cookies.txt / clean.txt 三种形式均可），
+  无 cookie 时仅报告缺失版本、不下载。
+- **同版本不同后缀去重**：本地有 `Ver_2.00.unitypackage`，页面 `Ver_2.00.zip` 视为已有
+  （按 `extract_version_tag` 版本匹配跳过），只补真正缺失的 `Ver_1.01.zip`。
+- **实现**：`backfill_free_files(dest_dir, item_id, session, cookie)`，
+  `organize_file` / `organize_one` 末尾自动调用；幂等（全齐返回 0）。
+- **实测**：3562410 目录现已补全 `Ver_1.01.zip`（9.1MB，zip 校验完整），与 `Ver_2.00.unitypackage` 共存。
+- **cookie 存量**：`C:\Users\19388\.openclaw\workspace\booth_cookies\`（OpenClaw 遗留），
+  `clean.txt` 为纯串（可直接 `--cookie` 用）；`cookies.txt` 是 Python 变量包装格式不可直接用。
 
 ### 9. 已下架 / 非 BOOTH 商品的归宿
 

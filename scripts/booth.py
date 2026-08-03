@@ -227,8 +227,9 @@ def extract_id(text: str) -> str:
     return m.group(1) if m else ""
 
 
-def organize_one(archive: Path, item_id: str, out_root: Path, dry_run: bool) -> bool:
-    session = bc.make_session()
+def organize_one(archive: Path, item_id: str, out_root: Path, dry_run: bool,
+                 cookie: str = "") -> bool:
+    session = bc.make_session(cookie=cookie) if cookie else bc.make_session()
     item = bc.fetch_item(item_id, session)
     if not item:
         print(f"! [{archive.name}] 无法获取商品 {item_id} 元数据")
@@ -237,7 +238,6 @@ def organize_one(archive: Path, item_id: str, out_root: Path, dry_run: bool) -> 
     cat = (item.get("category") or {}).get("name") or "その他"
     group = bc.CATEGORY_MAP.get(cat, cat)
     folder_name = f"{item_id}_{bc.sanitize(title)}"
-    new_arc_name = f"{folder_name}{archive.suffix}"
     folder = out_root / bc.sanitize(group, 40) / folder_name
 
     print(f"== 归档: {archive.name}")
@@ -250,19 +250,20 @@ def organize_one(archive: Path, item_id: str, out_root: Path, dry_run: bool) -> 
         return True
 
     folder.mkdir(parents=True, exist_ok=True)
-    dest_arc = folder / new_arc_name
+    # 主上规则：内部文件名保持**原文件名**（原名自带版本号），目录名用 ID_标题
+    dest_arc = folder / bc.sanitize(archive.name, 120)
     if archive.resolve() != dest_arc.resolve():
         if dest_arc.exists():
             print(f"   ! 目标已存在同名校验文件，跳过移动: {dest_arc.name}")
         else:
             try:
                 shutil.move(str(archive), str(dest_arc))
-                print(f"   -> 已重命名并移入: {new_arc_name}")
+                print(f"   -> 已移入: {dest_arc.name}")
             except Exception:
                 shutil.copy2(str(archive), str(dest_arc))
-                print(f"   ~ 移动失败，已复制: {new_arc_name} (原文件保留)")
+                print(f"   ~ 移动失败，已复制: {dest_arc.name} (原文件保留)")
     else:
-        print(f"   (已在目标位置): {new_arc_name}")
+        print(f"   (已在目标位置): {dest_arc.name}")
 
     images = item.get("images") or []
     cover = folder / "cover.jpg"
@@ -280,6 +281,13 @@ def organize_one(archive: Path, item_id: str, out_root: Path, dry_run: bool) -> 
             print(f"   -> 文件夹图标已设置")
         except bc.IconContractError as e:
             print(f"   ! 图标契约失败: {e}")
+    # 主上规则：商品页多免费版本全部补全
+    try:
+        n = backfill_free_files(folder, item_id, session, dry_run=False, cookie=cookie)
+        if n:
+            print(f"   ⚡ 免费版本补全: +{n} 个文件")
+    except Exception as e:
+        print(f"   ! 补全失败: {e}")
     return True
 
 
@@ -295,7 +303,7 @@ def cmd_organize(args):
         if not item_id:
             print(f"! [{p.name}] 文件名中未找到 7 位数字 BOOTH ID，跳过（可用 --id 指定）")
             continue
-        if organize_one(p, item_id, root, args.dry_run):
+        if organize_one(p, item_id, root, args.dry_run, cookie=args.cookie):
             ok += 1
     print(f"== 完成: {ok}/{len(args.archive)} 个归档处理成功 ==")
 
@@ -303,7 +311,63 @@ def cmd_organize(args):
 # ══════════════════════════════════════════════════════════════════
 # search — 原 booth-name-search（无 ID 按名搜索 + UnityPackage 锚点）
 # ══════════════════════════════════════════════════════════════════
-def organize_file(src_path: str, item_info: dict, base_dir: str, move_mode: bool = True) -> Path | None:
+def backfill_free_files(dest_dir: Path, item_id: str, session: requests.Session,
+                        dry_run: bool = False, cookie: str = "") -> int:
+    """商品页多免费版本补全：本地缺的免费文件全部下载补齐。
+
+    主上规则（2026-08-03）：商品页有 2~3 个免费文件（如 3562410 的
+    Ver_2.00.zip + Ver_1.01.zip），本地只有其中 1 个 → 其余全部补全。
+    公开 JSON 的 variations[].downloadable 已含完整文件列表与 URL（免登录检测），
+    但**实际下载需要登录 Cookie**（BOOTH 免费文件也要登录才能下载）。
+    无 cookie 时仅报告缺失版本，不下载。
+    """
+    try:
+        item = bc.fetch_item(item_id, session)
+    except Exception as e:
+        print(f"  ! 补全检查失败: {e}")
+        return 0
+    if not item:
+        return 0
+    files = free_downloads(item)
+    if not files:
+        return 0
+    # 带 cookie 时重建带会话的 session（下载需登录）；无 cookie → 仅报告
+    dl_session = None
+    if cookie:
+        dl_session = session or bc.make_session(cookie=cookie)
+    added = 0
+    missing = []
+    for url, fname in files:
+        dest = dest_dir / bc.sanitize(fname, 120)
+        # 同版本不同后缀也算已存在（本地 Ver_2.00.unitypackage vs 远程 Ver_2.00.zip）
+        local_ver = {bc.extract_version_tag(p.name) for p in dest_dir.iterdir() if p.is_file()}
+        remote_ver = bc.extract_version_tag(fname)
+        if remote_ver and remote_ver in local_ver:
+            continue
+        if dest.exists() and valid_file(dest):
+            continue
+        missing.append((url, fname))
+    if not missing:
+        return 0
+    print(f"  ⚡ 商品页另有 {len(missing)} 个免费版本未在本地: {[f[1] for f in missing]}")
+    if dry_run or not dl_session:
+        if not dl_session:
+            print("  (需 --cookie 才能下载；可用 `booth download` 带 cookie 补全)")
+        return 0
+    for url, fname in missing:
+        print(f"    + 补全免费文件: {fname}")
+        try:
+            download(url, dest_dir / bc.sanitize(fname, 120), dl_session, check_html=True)
+            added += 1
+        except Exception as e:
+            print(f"    ! 补全下载失败: {fname}: {e}")
+        time.sleep(0.5)
+    return added
+
+
+def organize_file(src_path: str, item_info: dict, base_dir: str, move_mode: bool = True,
+                  session: requests.Session | None = None, backfill: bool = True,
+                  cookie: str = "") -> Path | None:
     src = Path(src_path)
     base = Path(base_dir)
     item_id = item_info["id"]
@@ -312,16 +376,14 @@ def organize_file(src_path: str, item_info: dict, base_dir: str, move_mode: bool
     cat_cn = bc.classify(cat_raw, item_info.get("category_parent", ""))
     thumb = item_info.get("thumbnail", "")
     folder_name = f"{item_id}_{title}"
-    # 保留原文件名的版本标记（血泪：メカ弾エフェクトVer_2.00 → 纯标题丢版本）
-    version_tag = bc.extract_version_tag(src.name)
-    file_name = folder_name if not version_tag else f"{folder_name} {version_tag}"
     cat_dir = base / cat_cn
     dest_dir = cat_dir / folder_name
     dest_dir.mkdir(parents=True, exist_ok=True)
-    dest_file = dest_dir / f"{file_name}{src.suffix}"
+    # 主上规则：目录名 = ID_标题，但**内部文件名保持原文件名**（原名自带版本号）
+    dest_file = dest_dir / bc.sanitize(src.name, 120)
     cover = dest_dir / "cover.jpg"
 
-    # 幂等：已含重命名包 + 有效封面，仅补图标
+    # 幂等：已含原文件 + 有效封面，仅补图标
     if dest_file.exists() and cover.exists() and cover.stat().st_size > 1000:
         print(f"  已存在，仅补图标: {dest_dir}")
         bc.make_folder_icon(cover, dest_dir)
@@ -331,14 +393,14 @@ def organize_file(src_path: str, item_info: dict, base_dir: str, move_mode: bool
         if move_mode and src.exists():
             try:
                 shutil.move(str(src), str(dest_file))
-                print(f"  已移动: {dest_file}")
+                print(f"  已移动: {dest_file.name}")
             except OSError:
                 shutil.copy2(str(src), str(dest_file))
-                print(f"  已复制(跨盘): {dest_file}")
+                print(f"  已复制(跨盘): {dest_file.name}")
         else:
             if src.exists():
                 shutil.copy2(str(src), str(dest_file))
-                print(f"  已复制: {dest_file}")
+                print(f"  已复制: {dest_file.name}")
 
     if not (cover.exists() and cover.stat().st_size > 1000):
         cover = bc.download_cover(thumb, dest_dir)
@@ -348,11 +410,18 @@ def organize_file(src_path: str, item_info: dict, base_dir: str, move_mode: bool
         except bc.IconContractError as e:
             print(f"  ! 图标契约失败: {e}")
     print(f"  整理完成: {dest_dir}")
+
+    # 主上规则：商品页多免费版本全部补全
+    if backfill:
+        n = backfill_free_files(dest_dir, item_id, session or bc.make_session(), cookie=cookie)
+        if n:
+            print(f"  ⚡ 免费版本补全: +{n} 个文件")
     return dest_dir
 
 
 def process_file(filepath: str, base_dir: str, move_mode: bool = True,
-                 auto: bool = False, force_id: str = "", session=None) -> dict | None:
+                 auto: bool = False, force_id: str = "", session=None,
+                 cookie: str = "") -> dict | None:
     fp = Path(filepath)
     if not fp.exists():
         print(f"文件不存在: {filepath}")
@@ -376,7 +445,7 @@ def process_file(filepath: str, base_dir: str, move_mode: bool = True,
             "thumbnail": bc._thumb_from_json(d),
         }
         best_item = bc.refine_from_json(best_item, s)
-        organize_file(filepath, best_item, base_dir, move_mode)
+        organize_file(filepath, best_item, base_dir, move_mode, session=s, cookie=cookie)
         return best_item
 
     candidates = bc.sanitize_query(fp.name)
@@ -397,7 +466,7 @@ def process_file(filepath: str, base_dir: str, move_mode: bool = True,
                     if matched:
                         best_item = bc.refine_from_json(matched, s)
                         print(f"      通过水印店铺匹配: [{best_item['id']}] {best_item['name']}")
-                        organize_file(filepath, best_item, base_dir, move_mode)
+                        organize_file(filepath, best_item, base_dir, move_mode, session=s, cookie=cookie)
                         return best_item
 
     best_item = None
@@ -433,13 +502,13 @@ def process_file(filepath: str, base_dir: str, move_mode: bool = True,
     if not best_item:
         print("  未找到匹配商品。")
         return None
-    dest = organize_file(filepath, best_item, base_dir, move_mode)
+    dest = organize_file(filepath, best_item, base_dir, move_mode, session=s, cookie=cookie)
     return best_item
 
 
 def cmd_search(args):
     move_mode = not args.keep
-    session = bc.make_session()
+    session = bc.make_session(cookie=args.cookie) if args.cookie else bc.make_session()
     results = []
     for fp in args.files:
         if args.dry_run:
@@ -461,7 +530,7 @@ def cmd_search(args):
                 time.sleep(0.3)
         else:
             info = process_file(fp, args.base_dir, move_mode=move_mode, auto=args.auto,
-                                force_id=args.id, session=session)
+                                force_id=args.id, session=session, cookie=args.cookie)
             if info and not info.get("_ambiguous"):
                 results.append(info)
     print(f"\n{'='*60}")
@@ -608,6 +677,7 @@ def main():
     p_or.add_argument("--out", default=r"G:\Lin_File\BOOTH")
     p_or.add_argument("--id", default="", help="force item id（文件名无 ID 时用）")
     p_or.add_argument("--dry-run", action="store_true")
+    p_or.add_argument("--cookie", default="", help="BOOTH 登录 Cookie（用于补全商品页其他免费版本；无则仅报告缺失）")
     p_or.set_defaults(func=cmd_organize)
 
     # search
@@ -619,6 +689,7 @@ def main():
     p_se.add_argument("--auto", action="store_true", help="歧义也强制选最佳")
     p_se.add_argument("--id", default="", help="强制指定 BOOTH 商品 ID（跳过搜索）")
     p_se.add_argument("--cookie-file", default="")
+    p_se.add_argument("--cookie", default="", help="BOOTH 登录 Cookie（用于补全商品页其他免费版本；无则仅报告缺失）")
     p_se.set_defaults(func=cmd_search)
 
     # audit
