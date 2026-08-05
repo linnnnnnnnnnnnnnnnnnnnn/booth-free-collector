@@ -267,6 +267,18 @@ Windows 资源管理器**永久**不读该目录的 desktop.ini（缓存失效�
 > 该案例为**手动统合术式**（脚本当前不自动做多文件套装合并）：先按主上指令把变体 zip
 > 聚到临时文件夹，再用 `fetch_item()` + `download_cover()` + `make_folder_icon()` 补全编号与封面。
 
+#### 4.9 make_folder_icon 参数顺序陷阱（血泪：PermissionError 把目录当图片）
+**签名**：`make_folder_icon(cover_path: Path, folder_path: Path)`——**cover 在前，folder 在后**。
+
+2026-08-05 实测踩坑：`cmd_download` 两处调用写成 `bc.make_folder_icon(folder, cover)`（传反），
+结果 `Image.open(folder)` 试图把**目录**当图片打开 → `PermissionError: [Errno 13]`，
+且 `IconContractError` 误报「图标设置失败」，中断整批下载。
+
+**判定**：报错 `PermissionError ... 'G:\...\<商品名>'`（路径是目录而非 .jpg）＝参数传反。
+**修复**：统一为 `make_folder_icon(cover, folder)`。
+**防御**：`make_folder_icon` 内部已做 `cover_path.exists()` 守卫，但传反时 cover_path=folder 也存在，
+守卫失效——需调用方保证参数顺序。三合一后 download/organize/search/audit 四处调用已全部核对。
+
 ### 8. 双层文件名线索：拆词 + 解 UnityPackage
 
 主上亲授的两条关键搜索技巧（解决了 `LunariaPaperFan.zip` / `FREE無料-PoseAnimationMafuyu.zip` 两个误归档）：
