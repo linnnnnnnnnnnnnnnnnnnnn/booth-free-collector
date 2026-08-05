@@ -209,7 +209,7 @@ def cmd_download(args):
             except Exception as e:
                 print(f"    ! cover failed: {e}")
         if cover.exists():
-            bc.make_folder_icon(folder, cover)
+            bc.make_folder_icon(cover, folder)
         done += 1
         time.sleep(0.8)
     print(f"== done: {done} free items processed, {skipped} files already existed ==")
@@ -277,7 +277,7 @@ def organize_one(archive: Path, item_id: str, out_root: Path, dry_run: bool,
             print(f"   ! 封面下载失败: {e}")
     if cover.exists():
         try:
-            bc.make_folder_icon(folder, cover)
+            bc.make_folder_icon(cover, folder)
             print(f"   -> 文件夹图标已设置")
         except bc.IconContractError as e:
             print(f"   ! 图标契约失败: {e}")
